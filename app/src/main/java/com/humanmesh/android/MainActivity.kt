@@ -96,9 +96,9 @@ private fun HumanMeshApp() {
     var current by remember { mutableStateOf(if (api.isConfigured) sessions.read() else null) }
     var demoMode by rememberSaveable { mutableStateOf(false) }
     var activeTab by rememberSaveable { mutableStateOf(MainTab.Explore) }
-    var goals by remember { mutableStateOf(demoGoals()) }
+    var goals by remember { mutableStateOf(emptyList<Goal>()) }
     var ownGoals by remember { mutableStateOf(emptyList<Goal>()) }
-    var rooms by remember { mutableStateOf(demoRooms()) }
+    var rooms by remember { mutableStateOf(emptyList<OpportunityRoom>()) }
     var incomingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
     var outgoingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
     var profile by remember { mutableStateOf<UserProfile?>(null) }
