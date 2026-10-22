@@ -397,21 +397,60 @@ private fun HumanMeshApp() {
 
     if (showGoalDialog) {
         GoalDialog(
-            onDismiss = { showGoalDialog = false },
+            initialGoal = editingGoal,
+            onDismiss = { showGoalDialog = false; editingGoal = null },
             onCreate = { title, description, category, skills ->
+                val priorGoal = editingGoal
                 showGoalDialog = false
+                editingGoal = null
                 if (demoMode) {
-                    val goal = Goal("demo-" + UUID.randomUUID().toString(), "demo-user", title, description, category, skills, "active")
-                    ownGoals = ownGoals + goal
-                    goals = listOf(goal) + goals
-                    notice = "Sample goal saved locally in demo mode."
+                    val goal = if (priorGoal == null) {
+                        Goal("demo-" + UUID.randomUUID().toString(), "demo-user", title, description, category, skills, "active")
+                    } else {
+                        priorGoal.copy(title = title, description = description, category = category, requiredSkills = skills)
+                    }
+                    ownGoals = if (priorGoal == null) ownGoals + goal else ownGoals.map { if (it.id == goal.id) goal else it }
+                    goals = if (priorGoal == null) listOf(goal) + goals else goals.map { if (it.id == goal.id) goal else it }
+                    notice = if (priorGoal == null) "Sample goal saved locally." else "Sample goal updated locally."
                 } else if (signedIn != null) runTask {
-                    api.createGoal(signedIn.userId, title, description, category, skills)
+                    if (priorGoal == null) {
+                        api.createGoal(signedIn.userId, title, description, category, skills)
+                    } else {
+                        api.updateGoal(priorGoal.copy(title = title, description = description, category = category, requiredSkills = skills))
+                    }
                     ownGoals = api.getGoals(ownOnly = true, ownerId = signedIn.userId)
                     goals = api.getGoals()
-                    notice = "Goal published."
+                    notice = if (priorGoal == null) "Goal published." else "Goal updated."
                 }
             }
+        )
+    }
+
+    if (deleteGoalTarget != null) {
+        val targetGoal = deleteGoalTarget!!
+        AlertDialog(
+            onDismissRequest = { deleteGoalTarget = null },
+            title = { Text("Delete this goal?") },
+            text = { Text("\""+targetGoal.title+"\" will be permanently removed. This cannot be undone.") },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        deleteGoalTarget = null
+                        if (demoMode) {
+                            ownGoals = ownGoals.filterNot { it.id == targetGoal.id }
+                            goals = goals.filterNot { it.id == targetGoal.id }
+                            notice = "Sample goal deleted locally."
+                        } else if (signedIn != null) runTask {
+                            api.deleteGoal(targetGoal.id, signedIn.userId)
+                            ownGoals = api.getGoals(ownOnly = true, ownerId = signedIn.userId)
+                            goals = api.getGoals()
+                            notice = "Goal deleted."
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFB93656))
+                ) { Text("Delete goal") }
+            },
+            dismissButton = { TextButton(onClick = { deleteGoalTarget = null }) { Text("Cancel") } }
         )
     }
 
@@ -1025,16 +1064,17 @@ private fun SafetyPanel(
 
 @Composable
 private fun GoalDialog(
+    initialGoal: Goal?,
     onDismiss: () -> Unit,
     onCreate: (String, String, String, List<String>) -> Unit
 ) {
-    var title by rememberSaveable { mutableStateOf("") }
-    var description by rememberSaveable { mutableStateOf("") }
-    var category by rememberSaveable { mutableStateOf("Product building") }
-    var skills by rememberSaveable { mutableStateOf("") }
+    var title by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.title.orEmpty()) }
+    var description by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.description.orEmpty()) }
+    var category by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.category ?: "Product building") }
+    var skills by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.requiredSkills?.joinToString(", ").orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Publish a goal") },
+        title = { Text(if (initialGoal == null) "Publish a goal" else "Edit goal") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(title, { title = it.take(100) }, label = { Text("Goal title") }, modifier = Modifier.fillMaxWidth())
@@ -1046,7 +1086,7 @@ private fun GoalDialog(
         confirmButton = {
             Button(onClick = {
                 onCreate(title.trim(), description.trim(), category.trim(), skills.split(",").map { it.trim() }.filter(String::isNotBlank).take(20))
-            }, enabled = title.trim().length >= 3) { Text("Publish") }
+            }, enabled = title.trim().length >= 3) { Text(if (initialGoal == null) "Publish" else "Save changes") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
