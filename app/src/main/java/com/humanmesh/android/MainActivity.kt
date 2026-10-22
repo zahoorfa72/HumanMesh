@@ -106,6 +106,8 @@ private fun HumanMeshApp() {
     var notice by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var showGoalDialog by remember { mutableStateOf(false) }
+    var editingGoal by remember { mutableStateOf<Goal?>(null) }
+    var deleteGoalTarget by remember { mutableStateOf<Goal?>(null) }
     var showRoomDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
 
@@ -298,9 +300,11 @@ private fun HumanMeshApp() {
                         }
                     )
                     MainTab.Goals -> MyGoalsPanel(
-                        goals = if (demoMode) ownGoals else ownGoals,
+                        goals = ownGoals,
                         demoMode = demoMode,
-                        onAdd = { showGoalDialog = true }
+                        onAdd = { editingGoal = null; showGoalDialog = true },
+                        onEdit = { goal -> editingGoal = goal; showGoalDialog = true },
+                        onDelete = { goal -> deleteGoalTarget = goal }
                     )
                     MainTab.Connect -> ConnectionsPanel(
                         incoming = incomingRequests,
@@ -632,7 +636,9 @@ private fun GoalCard(
     ownGoal: Boolean,
     demoMode: Boolean,
     onConnect: () -> Unit,
-    skillFitPercent: Int? = null
+    skillFitPercent: Int? = null,
+    onEdit: (() -> Unit)? = null,
+    onDelete: (() -> Unit)? = null
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -674,12 +680,24 @@ private fun GoalCard(
             ) {
                 Text(if (ownGoal) "Your goal" else if (demoMode) "Preview collaboration" else "Request to connect")
             }
+            if (onEdit != null || onDelete != null) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (onEdit != null) OutlinedButton(onClick = onEdit, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Edit goal") }
+                    if (onDelete != null) OutlinedButton(onClick = onDelete, modifier = Modifier.weight(1f), colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFFFF9DAA)), shape = RoundedCornerShape(12.dp)) { Text("Delete goal") }
+                }
+            }
         }
     }
 }
 
 @Composable
-private fun MyGoalsPanel(goals: List<Goal>, demoMode: Boolean, onAdd: () -> Unit) {
+private fun MyGoalsPanel(
+    goals: List<Goal>,
+    demoMode: Boolean,
+    onAdd: () -> Unit,
+    onEdit: (Goal) -> Unit,
+    onDelete: (Goal) -> Unit
+) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.padding(horizontal = 18.dp, vertical = 18.dp)) {
             Text("Your direction", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
@@ -701,7 +719,7 @@ private fun MyGoalsPanel(goals: List<Goal>, demoMode: Boolean, onAdd: () -> Unit
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(goals, key = { it.id }) { goal ->
-                    GoalCard(goal, ownGoal = true, demoMode = demoMode, onConnect = {})
+                    GoalCard(goal, ownGoal = true, demoMode = demoMode, onConnect = {}, onEdit = { onEdit(goal) }, onDelete = { onDelete(goal) })
                 }
             }
         }
