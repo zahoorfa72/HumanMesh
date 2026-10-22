@@ -65,6 +65,34 @@ class HumanMeshApi(private val sessions: SessionStore) {
         return session
     }
 
+    suspend fun requestPasswordReset(email: String) {
+        require(email.trim().contains("@")) { "Enter a valid email address." }
+        request(
+            "POST",
+            "/auth/v1/recover?redirect_to=humanmesh%3A%2F%2Fauth%2Freset",
+            JSONObject().put("email", email.trim()),
+            authenticated = false
+        )
+    }
+
+    suspend fun updatePasswordFromRecovery(newPassword: String, recoveryAccessToken: String) =
+        withContext(Dispatchers.IO) {
+            require(newPassword.length >= 8) { "Password must contain at least 8 characters." }
+            require(recoveryAccessToken.isNotBlank()) { "The reset link is invalid or expired. Request a new one." }
+            if (!isConfigured) throw IOException("Backend is not configured.")
+            val request = Request.Builder()
+                .url("$baseUrl/auth/v1/user")
+                .header("apikey", anonKey)
+                .header("Authorization", "Bearer $recoveryAccessToken")
+                .put(JSONObject().put("password", newPassword).toString().toRequestBody(jsonType))
+                .build()
+            http.newCall(request).execute().use { response ->
+                val body = response.body?.string().orEmpty()
+                if (!response.isSuccessful) throw IOException(userMessage(body, response.code))
+            }
+            sessions.clear()
+        }
+
     suspend fun signOut() {
         runCatching { request("POST", "/auth/v1/logout", JSONObject(), authenticated = true) }
         sessions.clear()
