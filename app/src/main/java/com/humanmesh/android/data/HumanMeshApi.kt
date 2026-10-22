@@ -104,6 +104,17 @@ class HumanMeshApi(private val sessions: SessionStore) {
         return if (rows.length() == 0) null else UserProfile.from(rows.getJSONObject(0))
     }
 
+    suspend fun getProfileByUsername(username: String): UserProfile? {
+        val normalized = username.trim().removePrefix("@").lowercase()
+        if (!USERNAME_PATTERN.matches(normalized)) return null
+        val response = request(
+            "GET",
+            "/rest/v1/profiles?select=id,display_name,username,bio,skills&username=eq.$normalized&limit=1"
+        )
+        val rows = JSONArray(response)
+        return if (rows.length() == 0) null else UserProfile.from(rows.getJSONObject(0))
+    }
+
     suspend fun getProfilesByIds(userIds: List<String>): Map<String, UserProfile> {
         val ids = userIds.distinct().take(100)
         if (ids.isEmpty()) return emptyMap()
@@ -427,5 +438,6 @@ class HumanMeshApi(private val sessions: SessionStore) {
 
     companion object {
         private val UUID_PATTERN = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+        private val USERNAME_PATTERN = Regex("^[a-z0-9_]{3,30}$")
     }
 }
