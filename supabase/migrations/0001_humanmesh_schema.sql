@@ -114,7 +114,7 @@ $$;
 revoke all on function private.users_have_blocked(uuid, uuid) from public, anon;
 grant execute on function private.users_have_blocked(uuid, uuid) to authenticated;
 
-create or replace function public.set_updated_at()
+create or replace function private.set_updated_at()
 returns trigger
 language plpgsql
 set search_path = ''
@@ -127,13 +127,32 @@ $$;
 
 drop trigger if exists profiles_set_updated_at on public.profiles;
 create trigger profiles_set_updated_at before update on public.profiles
-for each row execute function public.set_updated_at();
+for each row execute function private.set_updated_at();
 drop trigger if exists goals_set_updated_at on public.goals;
 create trigger goals_set_updated_at before update on public.goals
-for each row execute function public.set_updated_at();
+for each row execute function private.set_updated_at();
 drop trigger if exists match_requests_set_updated_at on public.match_requests;
 create trigger match_requests_set_updated_at before update on public.match_requests
-for each row execute function public.set_updated_at();
+for each row execute function private.set_updated_at();
+
+create or replace function private.add_room_owner_member()
+returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $
+begin
+  insert into public.room_members (room_id, user_id, role)
+  values (new.id, new.owner_id, 'owner')
+  on conflict (room_id, user_id) do nothing;
+  return new;
+end;
+$;
+revoke all on function private.add_room_owner_member() from public, anon, authenticated;
+
+drop trigger if exists rooms_add_owner_member on public.opportunity_rooms;
+create trigger rooms_add_owner_member after insert on public.opportunity_rooms
+for each row execute function private.add_room_owner_member();
 
 alter table public.profiles enable row level security;
 alter table public.goals enable row level security;
@@ -208,7 +227,7 @@ for select to authenticated
 using (
   owner_id = auth.uid()
   or (is_public and not private.users_have_blocked(auth.uid(), owner_id))
-  or exists (select 1 from public.room_members rm where rm.room_id = id and rm.user_id = auth.uid())
+  or exists (select 1 from public.room_members rm where rm.room_id = opportunity_rooms.id and rm.user_id = auth.uid())
 );
 drop policy if exists rooms_insert_owner on public.opportunity_rooms;
 create policy rooms_insert_owner on public.opportunity_rooms
@@ -230,7 +249,7 @@ for insert to authenticated with check (
   user_id = auth.uid()
   and exists (
     select 1 from public.opportunity_rooms r
-    where r.id = room_id and (r.is_public or r.owner_id = auth.uid())
+    where r.id = room_members.room_id and (r.is_public or r.owner_id = auth.uid())
       and not private.users_have_blocked(auth.uid(), r.owner_id)
   )
 );
@@ -242,20 +261,20 @@ for delete to authenticated using (user_id = auth.uid());
 drop policy if exists messages_select_member on public.messages;
 create policy messages_select_member on public.messages
 for select to authenticated using (
-  exists (select 1 from public.room_members rm where rm.room_id = room_id and rm.user_id = auth.uid())
+  exists (select 1 from public.room_members rm where rm.room_id = messages.room_id and rm.user_id = auth.uid())
   and not exists (
     select 1 from public.opportunity_rooms r
-    where r.id = room_id and private.users_have_blocked(auth.uid(), r.owner_id)
+    where r.id = messages.room_id and private.users_have_blocked(auth.uid(), r.owner_id)
   )
 );
 drop policy if exists messages_insert_member on public.messages;
 create policy messages_insert_member on public.messages
 for insert to authenticated with check (
   sender_id = auth.uid()
-  and exists (select 1 from public.room_members rm where rm.room_id = room_id and rm.user_id = auth.uid())
+  and exists (select 1 from public.room_members rm where rm.room_id = messages.room_id and rm.user_id = auth.uid())
   and not exists (
     select 1 from public.opportunity_rooms r
-    where r.id = room_id and private.users_have_blocked(auth.uid(), r.owner_id)
+    where r.id = messages.room_id and private.users_have_blocked(auth.uid(), r.owner_id)
   )
 );
 
