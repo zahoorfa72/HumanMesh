@@ -557,6 +557,10 @@ private fun HumanMeshApp(
                         onSignOut = {
                             if (demoMode) {
                                 demoMode = false
+                                selectedProgressRoom = null
+                                progressItems = emptyList()
+                                goalOutcomes = emptyList()
+                                roomInvitations = emptyList()
                                 notice = ""
                             } else runTask {
                                 api.signOut()
@@ -564,6 +568,11 @@ private fun HumanMeshApp(
                                 profile = null
                                 memberProfiles = emptyMap()
                                 selectedRoom = null
+                                selectedProgressRoom = null
+                                messages = emptyList()
+                                progressItems = emptyList()
+                                goalOutcomes = emptyList()
+                                roomInvitations = emptyList()
                                 notice = "Signed out."
                             }
                         }
