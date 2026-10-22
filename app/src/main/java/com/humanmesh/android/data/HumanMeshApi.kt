@@ -192,7 +192,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
         }
         val response = request(
             "GET",
-            "/rest/v1/goals?select=id,owner_id,title,description,category,required_skills,status&$query&order=created_at.desc&limit=60"
+            "/rest/v1/goals?select=id,owner_id,title,description,category,required_skills,status,can_offer,target_timeline&$query&order=created_at.desc&limit=60"
         )
         val rows = JSONArray(response)
         return (0 until rows.length()).map { Goal.from(rows.getJSONObject(it)) }
@@ -203,7 +203,9 @@ class HumanMeshApi(private val sessions: SessionStore) {
         title: String,
         description: String,
         category: String,
-        skills: List<String>
+        skills: List<String>,
+        canOffer: String = "",
+        targetTimeline: String = ""
     ) {
         requireValidId(ownerId)
         val body = JSONObject()
@@ -212,6 +214,8 @@ class HumanMeshApi(private val sessions: SessionStore) {
             .put("description", description.trim().take(2000))
             .put("category", category.trim().ifBlank { "General" }.take(50))
             .put("required_skills", JSONArray(skills.map { it.trim().take(40) }.filter(String::isNotBlank).take(20)))
+            .put("can_offer", canOffer.trim().take(1000))
+            .put("target_timeline", targetTimeline.trim().take(100))
             .put("status", "active")
             .put("visibility", "public")
         request(
@@ -230,6 +234,8 @@ class HumanMeshApi(private val sessions: SessionStore) {
             .put("description", goal.description.trim().take(2000))
             .put("category", goal.category.trim().ifBlank { "General" }.take(50))
             .put("required_skills", JSONArray(goal.requiredSkills.map { it.trim().take(40) }.filter(String::isNotBlank).take(20)))
+            .put("can_offer", goal.canOffer.trim().take(1000))
+            .put("target_timeline", goal.targetTimeline.trim().take(100))
             .put("status", goal.status)
         val result = request(
             "PATCH",
@@ -305,7 +311,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
         return (0 until rows.length()).map { OpportunityRoom.from(rows.getJSONObject(it)) }
     }
 
-    suspend fun createRoom(ownerId: String, title: String, description: String, topic: String) {
+    suspend fun createRoom(ownerId: String, title: String, description: String, topic: String, goalId: String? = null) {
         requireValidId(ownerId)
         request(
             "POST",
@@ -315,7 +321,8 @@ class HumanMeshApi(private val sessions: SessionStore) {
                 .put("title", title.trim().take(100))
                 .put("description", description.trim().take(1500))
                 .put("topic", topic.trim().ifBlank { "Collaboration" }.take(50))
-                .put("is_public", true),
+                .put("is_public", true)
+                .put("goal_id", goalId?.takeIf { it.isNotBlank() }?.let { JSONObject.wrap(it) } ?: JSONObject.NULL),
             extraHeaders = mapOf("Prefer" to "return=minimal")
         )
     }
@@ -385,6 +392,85 @@ class HumanMeshApi(private val sessions: SessionStore) {
             authenticated = true
         )
         sessions.clear()
+    }
+
+
+    suspend fun getProjectItems(roomId: String): List<ProjectItem> {
+        requireValidId(roomId)
+        val response = request(
+            "GET",
+            "/rest/v1/project_items?select=id,room_id,created_by,title,description,item_type,status,created_at,completed_at&room_id=eq.$roomId&order=created_at.asc&limit=200"
+        )
+        val rows = JSONArray(response)
+        return (0 until rows.length()).map { ProjectItem.from(rows.getJSONObject(it)) }
+    }
+
+    suspend fun createProjectItem(roomId: String, creatorId: String, title: String, description: String, itemType: String) {
+        requireValidId(roomId)
+        requireValidId(creatorId)
+        require(itemType == "task" || itemType == "milestone")
+        require(title.trim().length in 3..120) { "Title must be 3–120 characters." }
+        request(
+            "POST",
+            "/rest/v1/project_items",
+            JSONObject()
+                .put("room_id", roomId)
+                .put("created_by", creatorId)
+                .put("title", title.trim().take(120))
+                .put("description", description.trim().take(1000))
+                .put("item_type", itemType)
+                .put("status", "open"),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
+    suspend fun setProjectItemStatus(itemId: String, status: String) {
+        requireValidId(itemId)
+        require(status == "open" || status == "completed")
+        request(
+            "PATCH",
+            "/rest/v1/project_items?id=eq.$itemId",
+            JSONObject().put("status", status),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
+    suspend fun getGoalOutcomes(roomId: String): List<GoalOutcome> {
+        requireValidId(roomId)
+        val response = request(
+            "GET",
+            "/rest/v1/goal_outcomes?select=id,room_id,author_id,title,summary,created_at,outcome_confirmations(user_id)&room_id=eq.$roomId&order=created_at.desc&limit=100"
+        )
+        val rows = JSONArray(response)
+        return (0 until rows.length()).map { GoalOutcome.from(rows.getJSONObject(it)) }
+    }
+
+    suspend fun createGoalOutcome(roomId: String, authorId: String, title: String, summary: String) {
+        requireValidId(roomId)
+        requireValidId(authorId)
+        require(title.trim().length in 3..120) { "Result title must be 3–120 characters." }
+        require(summary.trim().length in 10..1500) { "Describe the result in at least 10 characters." }
+        request(
+            "POST",
+            "/rest/v1/goal_outcomes",
+            JSONObject()
+                .put("room_id", roomId)
+                .put("author_id", authorId)
+                .put("title", title.trim().take(120))
+                .put("summary", summary.trim().take(1500)),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
+    suspend fun confirmGoalOutcome(outcomeId: String, userId: String) {
+        requireValidId(outcomeId)
+        requireValidId(userId)
+        request(
+            "POST",
+            "/rest/v1/outcome_confirmations?on_conflict=outcome_id,user_id",
+            JSONObject().put("outcome_id", outcomeId).put("user_id", userId),
+            extraHeaders = mapOf("Prefer" to "resolution=ignore-duplicates,return=minimal")
+        )
     }
 
     private suspend fun request(
