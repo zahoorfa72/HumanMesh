@@ -226,8 +226,13 @@ create policy rooms_select_visible on public.opportunity_rooms
 for select to authenticated
 using (
   owner_id = auth.uid()
-  or (is_public and not private.users_have_blocked(auth.uid(), owner_id))
-  or exists (select 1 from public.room_members rm where rm.room_id = opportunity_rooms.id and rm.user_id = auth.uid())
+  or (
+    not private.users_have_blocked(auth.uid(), owner_id)
+    and (
+      is_public
+      or exists (select 1 from public.room_members rm where rm.room_id = opportunity_rooms.id and rm.user_id = auth.uid())
+    )
+  )
 );
 drop policy if exists rooms_insert_owner on public.opportunity_rooms;
 create policy rooms_insert_owner on public.opportunity_rooms
