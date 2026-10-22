@@ -135,6 +135,34 @@ drop trigger if exists match_requests_set_updated_at on public.match_requests;
 create trigger match_requests_set_updated_at before update on public.match_requests
 for each row execute function private.set_updated_at();
 
+create or replace function private.guard_match_request_update()
+returns trigger
+language plpgsql
+set search_path = ''
+as $guard$
+begin
+  if auth.uid() is distinct from old.receiver_id then
+    raise exception 'Only the request recipient may respond to a connection request';
+  end if;
+  if new.sender_id is distinct from old.sender_id
+     or new.receiver_id is distinct from old.receiver_id
+     or new.goal_id is distinct from old.goal_id
+     or new.message is distinct from old.message
+     or new.created_at is distinct from old.created_at then
+    raise exception 'Connection request details cannot be changed';
+  end if;
+  if old.status <> 'pending' or new.status not in ('accepted', 'rejected') then
+    raise exception 'Only pending requests may be accepted or rejected';
+  end if;
+  return new;
+end;
+$guard$;
+revoke all on function private.guard_match_request_update() from public, anon, authenticated;
+
+drop trigger if exists match_requests_guard_update on public.match_requests;
+create trigger match_requests_guard_update before update on public.match_requests
+for each row execute function private.guard_match_request_update();
+
 create or replace function private.add_room_owner_member()
 returns trigger
 language plpgsql
@@ -252,6 +280,7 @@ drop policy if exists room_members_insert_self on public.room_members;
 create policy room_members_insert_self on public.room_members
 for insert to authenticated with check (
   user_id = auth.uid()
+  and role = 'member'
   and exists (
     select 1 from public.opportunity_rooms r
     where r.id = room_members.room_id and (r.is_public or r.owner_id = auth.uid())
