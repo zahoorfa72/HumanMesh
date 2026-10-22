@@ -85,6 +85,7 @@ private enum class MainTab(val label: String, val symbol: String) {
     Safety("Safety", "盾")
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HumanMeshApp() {
     val context = androidx.compose.ui.platform.LocalContext.current
