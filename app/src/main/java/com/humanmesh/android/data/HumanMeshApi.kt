@@ -104,6 +104,21 @@ class HumanMeshApi(private val sessions: SessionStore) {
         return if (rows.length() == 0) null else UserProfile.from(rows.getJSONObject(0))
     }
 
+    suspend fun getProfilesByIds(userIds: List<String>): Map<String, UserProfile> {
+        val ids = userIds.distinct().take(100)
+        if (ids.isEmpty()) return emptyMap()
+        ids.forEach(::requireValidId)
+        val filter = ids.joinToString(",")
+        val response = request(
+            "GET",
+            "/rest/v1/profiles?select=id,display_name,username,bio,skills&id=in.($filter)&limit=100"
+        )
+        val rows = JSONArray(response)
+        return (0 until rows.length())
+            .map { UserProfile.from(rows.getJSONObject(it)) }
+            .associateBy { it.id }
+    }
+
     suspend fun updateProfile(profile: UserProfile) {
         requireValidId(profile.id)
         val body = JSONObject()
