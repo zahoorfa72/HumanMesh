@@ -1578,12 +1578,14 @@ private fun ProgressPanel(
 private fun GoalDialog(
     initialGoal: Goal?,
     onDismiss: () -> Unit,
-    onCreate: (String, String, String, List<String>) -> Unit
+    onCreate: (String, String, String, List<String>, String, String) -> Unit
 ) {
     var title by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.title.orEmpty()) }
     var description by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.description.orEmpty()) }
     var category by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.category ?: "Product building") }
     var skills by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.requiredSkills?.joinToString(", ").orEmpty()) }
+    var canOffer by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.canOffer.orEmpty()) }
+    var targetTimeline by rememberSaveable(initialGoal?.id) { mutableStateOf(initialGoal?.targetTimeline.orEmpty()) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(if (initialGoal == null) "Publish a goal" else "Edit goal") },
@@ -1593,12 +1595,24 @@ private fun GoalDialog(
                 OutlinedTextField(description, { description = it.take(2000) }, label = { Text("What do you want to achieve?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
                 OutlinedTextField(category, { category = it.take(50) }, label = { Text("Category") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(skills, { skills = it.take(300) }, label = { Text("Skills needed, comma-separated") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(canOffer, { canOffer = it.take(1000) }, label = { Text("What can you contribute?") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                OutlinedTextField(targetTimeline, { targetTimeline = it.take(100) }, label = { Text("Target timeline (e.g. 3 months)") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
             }
         },
         confirmButton = {
-            Button(onClick = {
-                onCreate(title.trim(), description.trim(), category.trim(), skills.split(",").map { it.trim() }.filter(String::isNotBlank).take(20))
-            }, enabled = title.trim().length >= 3) { Text(if (initialGoal == null) "Publish" else "Save changes") }
+            Button(
+                onClick = {
+                    onCreate(
+                        title.trim(),
+                        description.trim(),
+                        category.trim(),
+                        skills.split(",").map { it.trim() }.filter(String::isNotBlank).take(20),
+                        canOffer.trim(),
+                        targetTimeline.trim()
+                    )
+                },
+                enabled = title.trim().length >= 3
+            ) { Text(if (initialGoal == null) "Publish" else "Save changes") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
@@ -1606,24 +1620,47 @@ private fun GoalDialog(
 
 @Composable
 private fun RoomDialog(
+    availableGoals: List<Goal>,
     onDismiss: () -> Unit,
-    onCreate: (String, String, String) -> Unit
+    onCreate: (String, String, String, String?) -> Unit
 ) {
     var title by rememberSaveable { mutableStateOf("") }
     var description by rememberSaveable { mutableStateOf("") }
     var topic by rememberSaveable { mutableStateOf("Collaboration") }
+    var selectedGoalId by rememberSaveable { mutableStateOf("") }
+    var goalsExpanded by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Create an opportunity room") },
+        title = { Text("Create a team room") },
         text = {
             Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 OutlinedTextField(title, { title = it.take(100) }, label = { Text("Room title") }, modifier = Modifier.fillMaxWidth())
-                OutlinedTextField(description, { description = it.take(1500) }, label = { Text("What will people work on?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                OutlinedTextField(description, { description = it.take(1500) }, label = { Text("What will the team work on?") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
                 OutlinedTextField(topic, { topic = it.take(50) }, label = { Text("Topic") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Box {
+                    OutlinedButton(onClick = { goalsExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                        Text(availableGoals.firstOrNull { it.id == selectedGoalId }?.title ?: "Link to a goal (optional)", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    DropdownMenu(expanded = goalsExpanded, onDismissRequest = { goalsExpanded = false }) {
+                        DropdownMenuItem(text = { Text("No linked goal") }, onClick = { selectedGoalId = ""; goalsExpanded = false })
+                        availableGoals.forEach { goal ->
+                            DropdownMenuItem(
+                                text = { Text(goal.title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                onClick = { selectedGoalId = goal.id; goalsExpanded = false }
+                            )
+                        }
+                    }
+                }
+                if (availableGoals.isEmpty()) {
+                    Text("Create a goal first if you want to link this room to a project.", color = Color(0xFFB7B7CC), fontSize = 12.sp)
+                }
             }
         },
         confirmButton = {
-            Button(onClick = { onCreate(title.trim(), description.trim(), topic.trim()) }, enabled = title.trim().length >= 3) { Text("Create room") }
+            Button(
+                onClick = { onCreate(title.trim(), description.trim(), topic.trim(), selectedGoalId.ifBlank { null }) },
+                enabled = title.trim().length >= 3
+            ) { Text("Create team room") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } }
     )
