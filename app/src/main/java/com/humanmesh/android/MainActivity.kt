@@ -191,6 +191,31 @@ private fun HumanMeshApp(
         }
     }
 
+    val signedIn = current
+    val resetToken = recoveryAccessToken
+    if (resetToken != null) {
+        PasswordResetScreen(
+            loading = busy,
+            message = notice,
+            onClearMessage = { notice = "" },
+            onCancel = {
+                notice = "Password reset cancelled. Return to sign in when ready."
+                onRecoveryFinished()
+            },
+            onSubmit = { newPassword ->
+                runTask {
+                    api.updatePasswordFromRecovery(newPassword, resetToken)
+                    sessions.clear()
+                    current = null
+                    profile = null
+                    demoMode = false
+                    notice = "Password changed. Sign in using your new password."
+                    onRecoveryFinished()
+                }
+            }
+        )
+        return
+    }
     if (current == null && !demoMode) {
         AuthScreen(
             configured = api.isConfigured,
@@ -242,30 +267,6 @@ private fun HumanMeshApp(
     }
 
     val signedIn = current
-    val resetToken = recoveryAccessToken
-    if (resetToken != null) {
-        PasswordResetScreen(
-            loading = busy,
-            message = notice,
-            onClearMessage = { notice = "" },
-            onCancel = {
-                notice = "Password reset cancelled. Return to sign in when ready."
-                onRecoveryFinished()
-            },
-            onSubmit = { newPassword ->
-                runTask {
-                    api.updatePasswordFromRecovery(newPassword, resetToken)
-                    sessions.clear()
-                    current = null
-                    profile = null
-                    demoMode = false
-                    notice = "Password changed. Sign in using your new password."
-                    onRecoveryFinished()
-                }
-            }
-        )
-        return
-    }
     Scaffold(
         containerColor = Color(0xFF10111B),
         topBar = {
