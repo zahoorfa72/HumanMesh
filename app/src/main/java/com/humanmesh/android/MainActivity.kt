@@ -391,16 +391,27 @@ private fun HumanMeshApp() {
                         onBlock = { target ->
                             if (demoMode) notice = "Blocking is unavailable in local demo mode."
                             else if (signedIn != null) runTask {
-                                api.blockUser(target, signedIn.userId)
-                                notice = "User blocked. Their public profile and goals will be hidden by the database rules."
-                                goals = api.getGoals()
+                                val targetProfile = api.getProfileByUsername(target)
+                                if (targetProfile == null) {
+                                    notice = "Member not found. Check the username."
+                                } else {
+                                    api.blockUser(targetProfile.id, signedIn.userId)
+                                    notice = "Member blocked. Their profile and public goals should no longer appear."
+                                    goals = api.getGoals()
+                                    memberProfiles = memberProfiles - targetProfile.id
+                                }
                             }
                         },
                         onReport = { target, reason ->
                             if (demoMode) notice = "Reporting is unavailable in local demo mode."
                             else if (signedIn != null) runTask {
-                                api.reportUser(target, signedIn.userId, reason)
-                                notice = "Report submitted. Reports require a human review process to be configured."
+                                val targetProfile = api.getProfileByUsername(target)
+                                if (targetProfile == null) {
+                                    notice = "Member not found. Check the username."
+                                } else {
+                                    api.reportUser(targetProfile.id, signedIn.userId, reason)
+                                    notice = "Report submitted. A moderation team must review it."
+                                }
                             }
                         },
                         onDelete = { showDeleteConfirm = true }
@@ -1058,8 +1069,8 @@ private fun SafetyPanel(
         Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
             Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 Text("Block or report a member", fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                Text("Enter the member's profile UUID. In the full product, these controls should also be available directly from each profile.", color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
-                OutlinedTextField(target, { target = it.take(36) }, label = { Text("Member profile UUID") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                Text("Enter the member's public username, with or without @. Only visible profiles can be found.", color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
+                OutlinedTextField(target, { target = it.removePrefix("@").lowercase().filter { ch -> ch.isLetterOrDigit() || ch == '_' }.take(30) }, label = { Text("Member username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                 OutlinedTextField(reason, { reason = it.take(1000) }, label = { Text("Report reason") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
                 OutlinedButton(
                     onClick = { onBlock(target.trim()) },
