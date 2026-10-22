@@ -81,3 +81,23 @@ private fun JSONArray?.toStringList(): List<String> {
     if (this == null) return emptyList()
     return (0 until length()).mapNotNull { i -> optString(i).takeIf(String::isNotBlank) }
 }
+
+data class MatchRequest(
+    val id: String,
+    val senderId: String,
+    val receiverId: String,
+    val goalId: String,
+    val message: String,
+    val status: String
+) {
+    companion object {
+        fun from(json: JSONObject) = MatchRequest(
+            id = json.optString("id"),
+            senderId = json.optString("sender_id"),
+            receiverId = json.optString("receiver_id"),
+            goalId = json.optString("goal_id"),
+            message = json.optString("message"),
+            status = json.optString("status", "pending")
+        )
+    }
+}
