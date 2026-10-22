@@ -193,7 +193,6 @@ private fun HumanMeshApp(
         }
     }
 
-    val signedIn = current
     val resetToken = recoveryAccessToken
     if (resetToken != null) {
         PasswordResetScreen(
