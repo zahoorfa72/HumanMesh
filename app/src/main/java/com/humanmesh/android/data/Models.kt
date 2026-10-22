@@ -10,7 +10,9 @@ data class Goal(
     val description: String,
     val category: String,
     val requiredSkills: List<String>,
-    val status: String
+    val status: String,
+    val canOffer: String = "",
+    val targetTimeline: String = ""
 ) {
     companion object {
         fun from(json: JSONObject) = Goal(
@@ -20,7 +22,9 @@ data class Goal(
             description = json.optString("description"),
             category = json.optString("category", "General"),
             requiredSkills = json.optJSONArray("required_skills").toStringList(),
-            status = json.optString("status", "active")
+            status = json.optString("status", "active"),
+            canOffer = json.optString("can_offer"),
+            targetTimeline = json.optString("target_timeline")
         )
     }
 }
@@ -100,4 +104,61 @@ data class MatchRequest(
             status = json.optString("status", "pending")
         )
     }
+}
+
+data class ProjectItem(
+    val id: String,
+    val roomId: String,
+    val createdBy: String,
+    val title: String,
+    val description: String,
+    val itemType: String,
+    val status: String,
+    val createdAt: String,
+    val completedAt: String
+) {
+    companion object {
+        fun from(json: JSONObject) = ProjectItem(
+            id = json.optString("id"),
+            roomId = json.optString("room_id"),
+            createdBy = json.optString("created_by"),
+            title = json.optString("title"),
+            description = json.optString("description"),
+            itemType = json.optString("item_type", "task"),
+            status = json.optString("status", "open"),
+            createdAt = json.optString("created_at"),
+            completedAt = json.optString("completed_at")
+        )
+    }
+}
+
+data class GoalOutcome(
+    val id: String,
+    val roomId: String,
+    val authorId: String,
+    val title: String,
+    val summary: String,
+    val createdAt: String,
+    val confirmedBy: List<String>
+) {
+    val confirmationCount: Int get() = confirmedBy.count { it != authorId }
+
+    fun isConfirmedBy(userId: String): Boolean = userId in confirmedBy
+
+    companion object {
+        fun from(json: JSONObject) = GoalOutcome(
+            id = json.optString("id"),
+            roomId = json.optString("room_id"),
+            authorId = json.optString("author_id"),
+            title = json.optString("title"),
+            summary = json.optString("summary"),
+            createdAt = json.optString("created_at"),
+            confirmedBy = json.optJSONArray("outcome_confirmations").toStringListFromObjects("user_id")
+        )
+    }
+}
+
+private fun JSONArray?.toStringListFromObjects(field: String): List<String> {
+    if (this == null) return emptyList()
+    return (0 until length()).mapNotNull { i -> optJSONObject(i)?.optString(field)?.takeIf(String::isNotBlank) }
 }
