@@ -168,14 +168,14 @@ returns trigger
 language plpgsql
 security definer
 set search_path = ''
-as $
+as $owner$
 begin
   insert into public.room_members (room_id, user_id, role)
   values (new.id, new.owner_id, 'owner')
   on conflict (room_id, user_id) do nothing;
   return new;
 end;
-$;
+$owner$;
 revoke all on function private.add_room_owner_member() from public, anon, authenticated;
 
 drop trigger if exists rooms_add_owner_member on public.opportunity_rooms;
