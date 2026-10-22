@@ -1,5 +1,3 @@
-import org.jetbrains.kotlin.gradle.dsl.JvmTarget
-
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -14,6 +12,8 @@ val supabaseAnonKey = providers.gradleProperty("SUPABASE_ANON_KEY")
     .orElse(providers.environmentVariable("SUPABASE_ANON_KEY"))
     .orElse("")
     .get()
+val escapedSupabaseUrl = supabaseUrl.replace("\\", "\\\\").replace("\"", "\\\"")
+val escapedSupabaseAnonKey = supabaseAnonKey.replace("\\", "\\\\").replace("\"", "\\\"")
 
 android {
     namespace = "com.humanmesh.android"
@@ -25,7 +25,8 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "SUPABASE_URL", "${'$'}{\"\\\"\u0024{supabaseUrl.replace("\"", "\\\\"")}\\\"\u0024{""}")
+        buildConfigField("String", "SUPABASE_URL", "\"$escapedSupabaseUrl\"")
+        buildConfigField("String", "SUPABASE_ANON_KEY", "\"$escapedSupabaseAnonKey\"")
     }
 
     buildFeatures {
