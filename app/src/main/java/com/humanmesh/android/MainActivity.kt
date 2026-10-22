@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.humanmesh.android.data.Goal
 import com.humanmesh.android.data.HumanMeshApi
+import com.humanmesh.android.data.MatchRequest
 import com.humanmesh.android.data.OpportunityRoom
 import com.humanmesh.android.data.RoomMessage
 import com.humanmesh.android.data.SessionStore
@@ -78,6 +79,7 @@ class MainActivity : ComponentActivity() {
 private enum class MainTab(val label: String, val symbol: String) {
     Explore("Explore", "✦"),
     Goals("My goals", "◎"),
+    Connect("Connect", "↔"),
     Rooms("Rooms", "◉"),
     Profile("Profile", "○"),
     Safety("Safety", "盾")
@@ -96,6 +98,8 @@ private fun HumanMeshApp() {
     var goals by remember { mutableStateOf(demoGoals()) }
     var ownGoals by remember { mutableStateOf(emptyList<Goal>()) }
     var rooms by remember { mutableStateOf(demoRooms()) }
+    var incomingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
+    var outgoingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
     var profile by remember { mutableStateOf<UserProfile?>(null) }
     var selectedRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
     var messages by remember { mutableStateOf(emptyList<RoomMessage>()) }
@@ -133,6 +137,11 @@ private fun HumanMeshApp() {
                 goals = api.getGoals()
                 ownGoals = api.getGoals(ownOnly = true, ownerId = signedIn.userId)
                 rooms = api.getRooms()
+                if (activeTab == MainTab.Connect) {
+                    val pair = api.getConnections(signedIn.userId)
+                    incomingRequests = pair.first
+                    outgoingRequests = pair.second
+                }
                 if (selectedRoom != null) messages = api.getMessages(selectedRoom!!.id)
             }.onFailure {
                 notice = it.message?.take(180) ?: "Could not refresh HumanMesh."
@@ -288,6 +297,30 @@ private fun HumanMeshApp() {
                         goals = if (demoMode) ownGoals else ownGoals,
                         demoMode = demoMode,
                         onAdd = { showGoalDialog = true }
+                    )
+                    MainTab.Connect -> ConnectionsPanel(
+                        incoming = incomingRequests,
+                        outgoing = outgoingRequests,
+                        currentUserId = signedIn?.userId ?: "demo-user",
+                        demoMode = demoMode,
+                        goals = goals,
+                        onRefresh = {
+                            if (demoMode) notice = "Sample content refreshed."
+                            else if (signedIn != null) runTask {
+                                val pair = api.getConnections(signedIn.userId)
+                                incomingRequests = pair.first
+                                outgoingRequests = pair.second
+                            }
+                        },
+                        onRespond = { requestId, status ->
+                            if (signedIn != null && !demoMode) runTask {
+                                api.respondToConnection(requestId, status)
+                                val pair = api.getConnections(signedIn.userId)
+                                incomingRequests = pair.first
+                                outgoingRequests = pair.second
+                                notice = if (status == "accepted") "Connection accepted." else "Connection declined."
+                            }
+                        }
                     )
                     MainTab.Rooms -> RoomsPanel(
                         rooms = rooms,
@@ -621,6 +654,92 @@ private fun MyGoalsPanel(goals: List<Goal>, demoMode: Boolean, onAdd: () -> Unit
             ) {
                 items(goals, key = { it.id }) { goal ->
                     GoalCard(goal, ownGoal = true, demoMode = demoMode, onConnect = {})
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionsPanel(
+    incoming: List<MatchRequest>,
+    outgoing: List<MatchRequest>,
+    currentUserId: String,
+    demoMode: Boolean,
+    goals: List<Goal>,
+    onRefresh: () -> Unit,
+    onRespond: (String, String) -> Unit
+) {
+    LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        item {
+            Text("Connections", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(6.dp))
+            Text("Requests are private to their participants. Accept only people you want to work with.", color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 20.sp)
+            TextButton(onClick = onRefresh) { Text("Refresh requests") }
+        }
+        item {
+            Text("INCOMING", color = Color(0xFF6BE0C1), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        }
+        if (incoming.isEmpty()) {
+            item { Text(if (demoMode) "Sample mode has no real connection requests." else "No pending requests right now.", color = Color(0xFFB7B7CC), fontSize = 13.sp) }
+        } else {
+            items(incoming, key = { "in-" + it.id }) { item ->
+                ConnectionRequestCard(
+                    request = item,
+                    partnerId = item.senderId,
+                    goalTitle = goals.firstOrNull { goal -> goal.id == item.goalId }?.title ?: "Goal collaboration",
+                    incoming = true,
+                    onRespond = onRespond
+                )
+            }
+        }
+        item {
+            Spacer(Modifier.height(4.dp))
+            Text("SENT REQUESTS", color = Color(0xFF6BE0C1), fontWeight = FontWeight.Bold, fontSize = 11.sp)
+        }
+        if (outgoing.isEmpty()) {
+            item { Text("You have not sent any requests yet.", color = Color(0xFFB7B7CC), fontSize = 13.sp) }
+        } else {
+            items(outgoing, key = { "out-" + it.id }) { item ->
+                ConnectionRequestCard(
+                    request = item,
+                    partnerId = item.receiverId,
+                    goalTitle = goals.firstOrNull { goal -> goal.id == item.goalId }?.title ?: "Goal collaboration",
+                    incoming = false,
+                    onRespond = onRespond
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionRequestCard(
+    request: MatchRequest,
+    partnerId: String,
+    goalTitle: String,
+    incoming: Boolean,
+    onRespond: (String, String) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))
+    ) {
+        Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+            Text(if (incoming) "FROM " + partnerId.take(8) else "TO " + partnerId.take(8), color = Color(0xFF9B8AFB), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(goalTitle, fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text(request.message, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Status: " + request.status, color = Color(0xFF6BE0C1), fontSize = 12.sp)
+                Spacer(Modifier.weight(1f))
+                if (incoming && request.status == "pending") {
+                    TextButton(onClick = { onRespond(request.id, "rejected") }) { Text("Decline") }
+                    Button(onClick = { onRespond(request.id, "accepted") }, shape = RoundedCornerShape(10.dp)) { Text("Accept") }
                 }
             }
         }
