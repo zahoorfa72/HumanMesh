@@ -101,6 +101,7 @@ private fun HumanMeshApp() {
     var incomingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
     var outgoingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
     var profile by remember { mutableStateOf<UserProfile?>(null) }
+    var memberProfiles by remember { mutableStateOf(emptyMap<String, UserProfile>()) }
     var selectedRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
     var messages by remember { mutableStateOf(emptyList<RoomMessage>()) }
     var notice by remember { mutableStateOf("") }
@@ -143,10 +144,13 @@ private fun HumanMeshApp() {
                 goals = api.getGoals()
                 ownGoals = api.getGoals(ownOnly = true, ownerId = signedIn.userId)
                 rooms = api.getRooms()
+                memberProfiles = api.getProfilesByIds((goals.map { it.ownerId } + signedIn.userId).distinct())
                 if (activeTab == MainTab.Connect) {
                     val pair = api.getConnections(signedIn.userId)
                     incomingRequests = pair.first
                     outgoingRequests = pair.second
+                    val otherIds = pair.first.map { it.senderId } + pair.second.map { it.receiverId }
+                    memberProfiles = memberProfiles + api.getProfilesByIds(otherIds.distinct())
                 }
                 if (selectedRoom != null) messages = api.getMessages(selectedRoom!!.id)
             }.onFailure {
@@ -168,6 +172,7 @@ private fun HumanMeshApp() {
                 ownGoals = emptyList()
                 rooms = demoRooms()
                 profile = null
+                memberProfiles = demoProfiles()
                 notice = "Demo mode uses sample content only. No real accounts or other people are connected."
             },
             onSignIn = { email, password ->
@@ -286,6 +291,7 @@ private fun HumanMeshApp() {
                         goals = goals,
                         currentUserId = signedIn?.userId ?: "demo-user",
                         mySkills = if (demoMode) listOf("Android", "UX research", "Education", "Kotlin") else profile?.skills.orEmpty(),
+                        ownerProfiles = memberProfiles,
                         demoMode = demoMode,
                         onConnect = { goal ->
                             if (demoMode) notice = "Demo only: connections are not sent to real users."
@@ -296,7 +302,10 @@ private fun HumanMeshApp() {
                         },
                         onRefresh = {
                             if (demoMode) notice = "Sample content refreshed."
-                            else runTask { goals = api.getGoals() }
+                            else runTask {
+                                goals = api.getGoals()
+                                memberProfiles = memberProfiles + api.getProfilesByIds(goals.map { it.ownerId }.distinct())
+                            }
                         }
                     )
                     MainTab.Goals -> MyGoalsPanel(
@@ -312,12 +321,15 @@ private fun HumanMeshApp() {
                         currentUserId = signedIn?.userId ?: "demo-user",
                         demoMode = demoMode,
                         goals = goals,
+                        memberProfiles = memberProfiles,
                         onRefresh = {
                             if (demoMode) notice = "Sample content refreshed."
                             else if (signedIn != null) runTask {
                                 val pair = api.getConnections(signedIn.userId)
                                 incomingRequests = pair.first
                                 outgoingRequests = pair.second
+                                val otherIds = pair.first.map { it.senderId } + pair.second.map { it.receiverId }
+                                memberProfiles = memberProfiles + api.getProfilesByIds(otherIds.distinct())
                             }
                         },
                         onRespond = { requestId, status ->
@@ -326,6 +338,8 @@ private fun HumanMeshApp() {
                                 val pair = api.getConnections(signedIn.userId)
                                 incomingRequests = pair.first
                                 outgoingRequests = pair.second
+                                val otherIds = pair.first.map { it.senderId } + pair.second.map { it.receiverId }
+                                memberProfiles = memberProfiles + api.getProfilesByIds(otherIds.distinct())
                                 notice = if (status == "accepted") "Connection accepted." else "Connection declined."
                             }
                         }
@@ -365,6 +379,7 @@ private fun HumanMeshApp() {
                                 api.signOut()
                                 current = null
                                 profile = null
+                                memberProfiles = emptyMap()
                                 selectedRoom = null
                                 notice = "Signed out."
                             }
@@ -596,6 +611,7 @@ private fun ExplorePanel(
     goals: List<Goal>,
     currentUserId: String,
     mySkills: List<String>,
+    ownerProfiles: Map<String, UserProfile>,
     demoMode: Boolean,
     onConnect: (Goal) -> Unit,
     onRefresh: () -> Unit
@@ -662,7 +678,8 @@ private fun ExplorePanel(
                     ownGoal = goal.ownerId == currentUserId || (demoMode && goal.ownerId == "demo-user"),
                     demoMode = demoMode,
                     onConnect = { onConnect(goal) },
-                    skillFitPercent = SkillMatcher.score(goal.requiredSkills, mySkills)
+                    skillFitPercent = SkillMatcher.score(goal.requiredSkills, mySkills),
+                    ownerProfile = ownerProfiles[goal.ownerId]
                 )
             }
         }
@@ -676,6 +693,7 @@ private fun GoalCard(
     demoMode: Boolean,
     onConnect: () -> Unit,
     skillFitPercent: Int? = null,
+    ownerProfile: UserProfile? = null,
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
 ) {
@@ -693,6 +711,9 @@ private fun GoalCard(
                 }
             }
             Text(goal.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 25.sp)
+            if (ownerProfile != null) {
+                Text("by ${ownerProfile.displayName} · @${ownerProfile.username}", color = Color(0xFF8E90A7), fontSize = 11.sp)
+            }
             if (skillFitPercent != null && goal.requiredSkills.isNotEmpty() && skillFitPercent > 0) {
                 Text(
                     "SKILL OVERLAP · $skillFitPercent%",
@@ -772,6 +793,7 @@ private fun ConnectionsPanel(
     currentUserId: String,
     demoMode: Boolean,
     goals: List<Goal>,
+    memberProfiles: Map<String, UserProfile>,
     onRefresh: () -> Unit,
     onRespond: (String, String) -> Unit
 ) {
@@ -796,6 +818,7 @@ private fun ConnectionsPanel(
                 ConnectionRequestCard(
                     request = item,
                     partnerId = item.senderId,
+                    partnerProfile = memberProfiles[item.senderId],
                     goalTitle = goals.firstOrNull { goal -> goal.id == item.goalId }?.title ?: "Goal collaboration",
                     incoming = true,
                     onRespond = onRespond
@@ -813,6 +836,7 @@ private fun ConnectionsPanel(
                 ConnectionRequestCard(
                     request = item,
                     partnerId = item.receiverId,
+                    partnerProfile = memberProfiles[item.receiverId],
                     goalTitle = goals.firstOrNull { goal -> goal.id == item.goalId }?.title ?: "Goal collaboration",
                     incoming = false,
                     onRespond = onRespond
@@ -826,6 +850,7 @@ private fun ConnectionsPanel(
 private fun ConnectionRequestCard(
     request: MatchRequest,
     partnerId: String,
+    partnerProfile: UserProfile?,
     goalTitle: String,
     incoming: Boolean,
     onRespond: (String, String) -> Unit
@@ -836,7 +861,13 @@ private fun ConnectionRequestCard(
         colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))
     ) {
         Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-            Text(if (incoming) "FROM " + partnerId.take(8) else "TO " + partnerId.take(8), color = Color(0xFF9B8AFB), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            Text(
+                (if (incoming) "FROM " else "TO ") + (partnerProfile?.displayName ?: ("Member " + partnerId.take(8))) +
+                    (partnerProfile?.username?.let { " · @$it" } ?: ""),
+                color = Color(0xFF9B8AFB),
+                fontSize = 10.sp,
+                fontWeight = FontWeight.Bold
+            )
             Text(goalTitle, fontSize = 17.sp, fontWeight = FontWeight.Bold)
             Text(request.message, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp)
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1145,6 +1176,13 @@ private fun NoticeBanner(text: String, onDismiss: () -> Unit) {
         }
     }
 }
+
+
+private fun demoProfiles(): Map<String, UserProfile> = mapOf(
+    "sample-person-1" to UserProfile("sample-person-1", "Amina", "amina_builds", "Creating tools that help people learn.", listOf("Android", "UX research", "Education")),
+    "sample-person-2" to UserProfile("sample-person-2", "Bilal", "bilal_creates", "Interested in small-business products and community design.", listOf("Design", "Marketing", "Research")),
+    "sample-person-3" to UserProfile("sample-person-3", "Sara", "sara_codes", "Learning by building small projects with others.", listOf("Mentoring", "Kotlin", "Planning"))
+)
 
 private fun demoGoals(): List<Goal> = listOf(
     Goal("demo-g1", "sample-person-1", "Build a useful learning app", "Looking for someone who enjoys UX, Android development, and testing small ideas with real learners.", "Product building", listOf("Android", "UX research", "Education"), "active"),
