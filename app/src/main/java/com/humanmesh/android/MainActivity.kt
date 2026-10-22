@@ -29,6 +29,8 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -58,6 +60,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.humanmesh.android.data.Goal
+import com.humanmesh.android.data.GoalOutcome
+import com.humanmesh.android.data.ProjectItem
 import com.humanmesh.android.data.HumanMeshApi
 import com.humanmesh.android.data.MatchRequest
 import com.humanmesh.android.data.OpportunityRoom
@@ -109,6 +113,7 @@ private enum class MainTab(val label: String, val symbol: String) {
     Goals("My goals", "◎"),
     Connect("Connect", "↔"),
     Rooms("Rooms", "◉"),
+    Progress("Progress", "✓"),
     Profile("Profile", "○"),
     Safety("Safety", "盾")
 }
@@ -137,6 +142,9 @@ private fun HumanMeshApp(
     var directoryProfiles by remember { mutableStateOf(emptyList<UserProfile>()) }
     var selectedRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
     var messages by remember { mutableStateOf(emptyList<RoomMessage>()) }
+    var selectedProgressRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
+    var progressItems by remember { mutableStateOf(emptyList<ProjectItem>()) }
+    var goalOutcomes by remember { mutableStateOf(emptyList<GoalOutcome>()) }
     var notice by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var showGoalDialog by remember { mutableStateOf(false) }
@@ -162,7 +170,7 @@ private fun HumanMeshApp(
         }
     }
 
-    LaunchedEffect(current?.userId, activeTab, selectedRoom?.id, demoMode) {
+    LaunchedEffect(current?.userId, activeTab, selectedRoom?.id, selectedProgressRoom?.id, demoMode) {
         val signedIn = current
         if (demoMode) {
             if (selectedRoom != null) {
@@ -187,6 +195,10 @@ private fun HumanMeshApp(
                     memberProfiles = memberProfiles + api.getProfilesByIds(otherIds.distinct())
                 }
                 if (selectedRoom != null) messages = api.getMessages(selectedRoom!!.id)
+                if (activeTab == MainTab.Progress && selectedProgressRoom != null) {
+                    progressItems = api.getProjectItems(selectedProgressRoom!!.id)
+                    goalOutcomes = api.getGoalOutcomes(selectedProgressRoom!!.id)
+                }
             }.onFailure {
                 notice = it.message?.take(180) ?: "Could not refresh HumanMesh."
             }
@@ -424,6 +436,82 @@ private fun HumanMeshApp(
                             }
                         }
                     )
+                    MainTab.Progress -> ProgressPanel(
+                        rooms = rooms,
+                        selectedRoom = selectedProgressRoom,
+                        items = progressItems,
+                        outcomes = goalOutcomes,
+                        currentUserId = signedIn?.userId ?: "demo-user",
+                        demoMode = demoMode,
+                        loading = busy,
+                        onSelectRoom = { room ->
+                            if (demoMode) {
+                                selectedProgressRoom = room
+                                progressItems = emptyList()
+                                goalOutcomes = emptyList()
+                            } else if (signedIn != null) runTask {
+                                api.joinRoom(room.id, signedIn.userId)
+                                selectedProgressRoom = room
+                                progressItems = api.getProjectItems(room.id)
+                                goalOutcomes = api.getGoalOutcomes(room.id)
+                            }
+                        },
+                        onBack = { selectedProgressRoom = null },
+                        onRefresh = {
+                            if (demoMode) notice = "Local progress refreshed."
+                            else if (selectedProgressRoom != null) runTask {
+                                progressItems = api.getProjectItems(selectedProgressRoom!!.id)
+                                goalOutcomes = api.getGoalOutcomes(selectedProgressRoom!!.id)
+                            }
+                        },
+                        onAddItem = { title, description, type ->
+                            val room = selectedProgressRoom
+                            if (room != null && demoMode) {
+                                progressItems = progressItems + ProjectItem(
+                                    UUID.randomUUID().toString(), room.id, "demo-user", title, description, type, "open", "Just now", ""
+                                )
+                                notice = "Sample ${type} added locally."
+                            } else if (room != null && signedIn != null) runTask {
+                                api.createProjectItem(room.id, signedIn.userId, title, description, type)
+                                progressItems = api.getProjectItems(room.id)
+                                notice = if (type == "task") "Task added to the room." else "Milestone added to the room."
+                            }
+                        },
+                        onToggleItem = { item ->
+                            if (demoMode) {
+                                progressItems = progressItems.map {
+                                    if (it.id == item.id) it.copy(status = if (it.status == "completed") "open" else "completed") else it
+                                }
+                            } else runTask {
+                                api.setProjectItemStatus(item.id, if (item.status == "completed") "open" else "completed")
+                                progressItems = api.getProjectItems(item.roomId)
+                                notice = if (item.status == "completed") "Item reopened." else "Progress recorded."
+                            }
+                        },
+                        onAddOutcome = { title, summary ->
+                            val room = selectedProgressRoom
+                            if (room != null && demoMode) {
+                                goalOutcomes = listOf(GoalOutcome(UUID.randomUUID().toString(), room.id, "demo-user", title, summary, "Just now", emptyList())) + goalOutcomes
+                                notice = "Sample result recorded locally; it is not a verified public achievement."
+                            } else if (room != null && signedIn != null) runTask {
+                                api.createGoalOutcome(room.id, signedIn.userId, title, summary)
+                                goalOutcomes = api.getGoalOutcomes(room.id)
+                                notice = "Result recorded. Teammates can confirm it."
+                            }
+                        },
+                        onConfirmOutcome = { outcome ->
+                            if (demoMode) {
+                                goalOutcomes = goalOutcomes.map {
+                                    if (it.id == outcome.id && "demo-user" !in it.confirmedBy) it.copy(confirmedBy = it.confirmedBy + "demo-user") else it
+                                }
+                                notice = "Sample confirmation saved locally only."
+                            } else if (signedIn != null) runTask {
+                                api.confirmGoalOutcome(outcome.id, signedIn.userId)
+                                goalOutcomes = api.getGoalOutcomes(outcome.roomId)
+                                notice = "You confirmed this collaboration result."
+                            }
+                        }
+                    )
                     MainTab.Profile -> ProfilePanel(
                         profile = profile,
                         email = signedIn?.email ?: "demo@humanmesh.local",
@@ -492,24 +580,24 @@ private fun HumanMeshApp(
         GoalDialog(
             initialGoal = editingGoal,
             onDismiss = { showGoalDialog = false; editingGoal = null },
-            onCreate = { title, description, category, skills ->
+            onCreate = { title, description, category, skills, canOffer, targetTimeline ->
                 val priorGoal = editingGoal
                 showGoalDialog = false
                 editingGoal = null
                 if (demoMode) {
                     val goal = if (priorGoal == null) {
-                        Goal("demo-" + UUID.randomUUID().toString(), "demo-user", title, description, category, skills, "active")
+                        Goal("demo-" + UUID.randomUUID().toString(), "demo-user", title, description, category, skills, "active", canOffer, targetTimeline)
                     } else {
-                        priorGoal.copy(title = title, description = description, category = category, requiredSkills = skills)
+                        priorGoal.copy(title = title, description = description, category = category, requiredSkills = skills, canOffer = canOffer, targetTimeline = targetTimeline)
                     }
                     ownGoals = if (priorGoal == null) ownGoals + goal else ownGoals.map { if (it.id == goal.id) goal else it }
                     goals = if (priorGoal == null) listOf(goal) + goals else goals.map { if (it.id == goal.id) goal else it }
                     notice = if (priorGoal == null) "Sample goal saved locally." else "Sample goal updated locally."
                 } else if (signedIn != null) runTask {
                     if (priorGoal == null) {
-                        api.createGoal(signedIn.userId, title, description, category, skills)
+                        api.createGoal(signedIn.userId, title, description, category, skills, canOffer, targetTimeline)
                     } else {
-                        api.updateGoal(priorGoal.copy(title = title, description = description, category = category, requiredSkills = skills))
+                        api.updateGoal(priorGoal.copy(title = title, description = description, category = category, requiredSkills = skills, canOffer = canOffer, targetTimeline = targetTimeline))
                     }
                     ownGoals = api.getGoals(ownOnly = true, ownerId = signedIn.userId)
                     goals = api.getGoals()
@@ -549,16 +637,17 @@ private fun HumanMeshApp(
 
     if (showRoomDialog) {
         RoomDialog(
+            availableGoals = ownGoals,
             onDismiss = { showRoomDialog = false },
-            onCreate = { title, description, topic ->
+            onCreate = { title, description, topic, goalId ->
                 showRoomDialog = false
                 if (demoMode) {
                     rooms = listOf(OpportunityRoom("demo-" + UUID.randomUUID().toString(), "demo-user", title, description, topic)) + rooms
-                    notice = "Sample room created locally."
+                    notice = if (goalId != null) "Sample team room created for your goal." else "Sample room created locally."
                 } else if (signedIn != null) runTask {
-                    api.createRoom(signedIn.userId, title, description, topic)
+                    api.createRoom(signedIn.userId, title, description, topic, goalId)
                     rooms = api.getRooms()
-                    notice = "Opportunity room created."
+                    notice = if (goalId != null) "Team room created and linked to your goal." else "Opportunity room created."
                 }
             }
         )
@@ -869,7 +958,8 @@ private fun ExplorePanel(
                     demoMode = demoMode,
                     onConnect = { onConnect(goal) },
                     skillFitPercent = SkillMatcher.score(goal.requiredSkills, mySkills),
-                    ownerProfile = ownerProfiles[goal.ownerId]
+                    ownerProfile = ownerProfiles[goal.ownerId],
+                    matchReasons = SkillMatcher.reasons(goal.requiredSkills, mySkills)
                 )
             }
         }
@@ -938,6 +1028,7 @@ private fun GoalCard(
     onConnect: () -> Unit,
     skillFitPercent: Int? = null,
     ownerProfile: UserProfile? = null,
+    matchReasons: List<String> = emptyList(),
     onEdit: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null
 ) {
@@ -967,6 +1058,20 @@ private fun GoalCard(
                 )
             }
             Text(goal.description.ifBlank { "A new opportunity to bring good people together." }, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 20.sp)
+            if (goal.canOffer.isNotBlank()) {
+                Text("CAN CONTRIBUTE · ${goal.canOffer}", color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
+            }
+            if (goal.targetTimeline.isNotBlank()) {
+                Text("TARGET TIMELINE · ${goal.targetTimeline}", color = Color(0xFFB7B7CC), fontSize = 11.sp)
+            }
+            if (matchReasons.isNotEmpty() && !ownGoal) {
+                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text("WHY THIS MATCH", color = Color(0xFF9B8AFB), fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    matchReasons.take(2).forEach { reason ->
+                        Text("• $reason", color = Color(0xFFB7B7CC), fontSize = 11.sp, lineHeight = 16.sp)
+                    }
+                }
+            }
             if (goal.requiredSkills.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                     goal.requiredSkills.take(3).forEach { skill ->
@@ -1334,6 +1439,138 @@ private fun SafetyPanel(
             }
         }
         Text("Security note: no software can be guaranteed completely secure. Real-user launch requires policy tests, moderation operations, monitoring, and independent review.", color = Color(0xFF8E90A7), fontSize = 12.sp, lineHeight = 18.sp)
+    }
+}
+
+
+@Composable
+private fun ProgressPanel(
+    rooms: List<OpportunityRoom>,
+    selectedRoom: OpportunityRoom?,
+    items: List<ProjectItem>,
+    outcomes: List<GoalOutcome>,
+    currentUserId: String,
+    demoMode: Boolean,
+    loading: Boolean,
+    onSelectRoom: (OpportunityRoom) -> Unit,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onAddItem: (String, String, String) -> Unit,
+    onToggleItem: (ProjectItem) -> Unit,
+    onAddOutcome: (String, String) -> Unit,
+    onConfirmOutcome: (GoalOutcome) -> Unit
+) {
+    var itemTitle by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
+    var itemDescription by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
+    var outcomeTitle by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
+    var outcomeSummary by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
+    if (selectedRoom == null) {
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            item {
+                Text("Progress & results", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Turn collaboration into visible progress. Tasks, milestones and results are shared with room members.", color = Color(0xFFB7B7CC), fontSize = 14.sp, lineHeight = 21.sp)
+                Spacer(Modifier.height(5.dp))
+                Text("SELECT A TEAM ROOM", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            }
+            if (rooms.isEmpty()) {
+                item { EmptyState("Create your first team room", "Open Rooms, start a room, and link it to one of your goals. Then manage tasks and results here.") }
+            } else {
+                items(rooms, key = { "progress-" + it.id }) { room ->
+                    Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                        Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(room.title, fontSize = 18.sp, fontWeight = FontWeight.Bold)
+                            Text(room.description, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp)
+                            Text(room.topic.uppercase(), color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                            Button(onClick = { onSelectRoom(room) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) { Text("Open team progress") }
+                        }
+                    }
+                }
+            }
+            item {
+                Text("Reputation is earned through work: completed tasks and outcomes confirmed by teammates—not likes or follower counts.", color = Color(0xFF8E90A7), fontSize = 12.sp, lineHeight = 18.sp)
+            }
+        }
+    } else {
+        Column(
+            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            TextButton(onClick = onBack) { Text("← All team rooms") }
+            Text("Team progress", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
+            Text(selectedRoom.title, color = Color(0xFF6BE0C1), fontSize = 17.sp, fontWeight = FontWeight.Bold)
+            Text("Tasks completed: ${items.count { it.status == "completed" }} / ${items.size}  ·  Milestones completed: ${items.count { it.itemType == "milestone" && it.status == "completed" }}", color = Color(0xFFB7B7CC), fontSize = 12.sp)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = onRefresh, enabled = !loading, modifier = Modifier.weight(1f)) { Text("Refresh") }
+                OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Switch room") }
+            }
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Add a task or milestone", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    OutlinedTextField(itemTitle, { itemTitle = it.take(120) }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(itemDescription, { itemDescription = it.take(1000) }, label = { Text("Details (optional)") }, modifier = Modifier.fillMaxWidth(), minLines = 2)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(
+                            onClick = { onAddItem(itemTitle.trim(), itemDescription.trim(), "task"); itemTitle = ""; itemDescription = "" },
+                            enabled = !loading && itemTitle.trim().length >= 3,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Add task") }
+                        OutlinedButton(
+                            onClick = { onAddItem(itemTitle.trim(), itemDescription.trim(), "milestone"); itemTitle = ""; itemDescription = "" },
+                            enabled = !loading && itemTitle.trim().length >= 3,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Add milestone") }
+                    }
+                }
+            }
+            Text("TASKS & MILESTONES", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            if (items.isEmpty()) Text("No tasks yet. Add the first clear next step.", color = Color(0xFFB7B7CC), fontSize = 13.sp)
+            items.forEach { item ->
+                Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                    Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(item.itemType.uppercase() + if (item.status == "completed") " · COMPLETED" else " · OPEN", color = if (item.status == "completed") Color(0xFF6BE0C1) else Color(0xFF9B8AFB), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                        Text(item.title, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                        if (item.description.isNotBlank()) Text(item.description, color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
+                        OutlinedButton(onClick = { onToggleItem(item) }, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+                            Text(if (item.status == "completed") "Reopen item" else "Mark complete")
+                        }
+                    }
+                }
+            }
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Record a result", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text("Describe what the team actually achieved. Other room members can confirm the result; confirmations are not a guarantee that every claim is objectively true.", color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
+                    OutlinedTextField(outcomeTitle, { outcomeTitle = it.take(120) }, label = { Text("Result title") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(outcomeSummary, { outcomeSummary = it.take(1500) }, label = { Text("What was achieved? (10+ characters)") }, modifier = Modifier.fillMaxWidth(), minLines = 3)
+                    Button(
+                        onClick = { onAddOutcome(outcomeTitle.trim(), outcomeSummary.trim()); outcomeTitle = ""; outcomeSummary = "" },
+                        enabled = !loading && outcomeTitle.trim().length >= 3 && outcomeSummary.trim().length >= 10,
+                        modifier = Modifier.fillMaxWidth()
+                    ) { Text("Record result") }
+                }
+            }
+            Text("COLLABORATION RESULTS", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+            if (outcomes.isEmpty()) Text("No results recorded for this room yet.", color = Color(0xFFB7B7CC), fontSize = 13.sp)
+            outcomes.forEach { outcome ->
+                Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                    Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                        Text(outcome.title, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+                        Text(outcome.summary, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp)
+                        Text("Teammate confirmations: ${outcome.confirmationCount}", color = Color(0xFF6BE0C1), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        if (outcome.authorId != currentUserId && !outcome.isConfirmedBy(currentUserId)) {
+                            OutlinedButton(onClick = { onConfirmOutcome(outcome) }, enabled = !loading && !demoMode, modifier = Modifier.fillMaxWidth()) { Text("Confirm this result") }
+                        } else if (outcome.isConfirmedBy(currentUserId)) {
+                            Text("You confirmed this result", color = Color(0xFF8E90A7), fontSize = 11.sp)
+                        }
+                    }
+                }
+            }
+            if (demoMode) Text("Demo progress is stored only in memory and is not a real public achievement.", color = Color(0xFFFFD39A), fontSize = 12.sp)
+        }
     }
 }
 
