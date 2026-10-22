@@ -162,3 +162,23 @@ private fun JSONArray?.toStringListFromObjects(field: String): List<String> {
     if (this == null) return emptyList()
     return (0 until length()).mapNotNull { i -> optJSONObject(i)?.optString(field)?.takeIf(String::isNotBlank) }
 }
+
+data class RoomInvitation(
+    val id: String,
+    val roomId: String,
+    val inviterId: String,
+    val inviteeId: String,
+    val status: String,
+    val createdAt: String
+) {
+    companion object {
+        fun from(json: JSONObject) = RoomInvitation(
+            id = json.optString("id"),
+            roomId = json.optString("room_id"),
+            inviterId = json.optString("inviter_id"),
+            inviteeId = json.optString("invitee_id"),
+            status = json.optString("status", "pending"),
+            createdAt = json.optString("created_at")
+        )
+    }
+}
