@@ -1,6 +1,9 @@
 package com.humanmesh.android
 
+import com.humanmesh.android.data.SkillMatcher
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,20 +15,26 @@ class BasicValidationTest {
         assertFalse(uuid.matches("me"))
         assertFalse(uuid.matches("123e4567-e89b-12d3-a456-42661417400"))
     }
-}
 
     @Test
     fun skillMatcherIsCaseInsensitiveAndIgnoresDuplicates() {
-        val score = com.humanmesh.android.data.SkillMatcher.score(
-            requiredSkills = listOf("Kotlin", "Android", "Kotlin"),
-            userSkills = listOf("kotlin", "ANDROID", "Kotlin")
+        assertEquals(
+            100,
+            SkillMatcher.score(
+                requiredSkills = listOf("Kotlin", "Android", "Kotlin"),
+                userSkills = listOf("kotlin", "ANDROID", "Kotlin")
+            )
         )
-        assertTrue(score == 100)
     }
 
     @Test
     fun skillMatcherReturnsZeroForNoOverlapAndNullForNoRequirements() {
-        assertTrue(com.humanmesh.android.data.SkillMatcher.score(listOf("Design"), listOf("Kotlin")) == 0)
-        assertTrue(com.humanmesh.android.data.SkillMatcher.score(emptyList(), listOf("Kotlin")) == null)
+        assertEquals(0, SkillMatcher.score(listOf("Design"), listOf("Kotlin")))
+        assertNull(SkillMatcher.score(emptyList(), listOf("Kotlin")))
+    }
+
+    @Test
+    fun skillMatcherCalculatesPartialOverlap() {
+        assertEquals(50, SkillMatcher.score(listOf("Kotlin", "Android"), listOf("Kotlin", "UX")))
     }
 }
