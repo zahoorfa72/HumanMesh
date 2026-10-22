@@ -159,6 +159,35 @@ class HumanMeshApi(private val sessions: SessionStore) {
         )
     }
 
+    suspend fun updateGoal(goal: Goal) {
+        requireValidId(goal.id)
+        requireValidId(goal.ownerId)
+        val body = JSONObject()
+            .put("title", goal.title.trim().take(100))
+            .put("description", goal.description.trim().take(2000))
+            .put("category", goal.category.trim().ifBlank { "General" }.take(50))
+            .put("required_skills", JSONArray(goal.requiredSkills.map { it.trim().take(40) }.filter(String::isNotBlank).take(20)))
+            .put("status", goal.status)
+        val result = request(
+            "PATCH",
+            "/rest/v1/goals?id=eq.${goal.id}&owner_id=eq.${goal.ownerId}",
+            body,
+            extraHeaders = mapOf("Prefer" to "return=representation")
+        )
+        if (JSONArray(result).length() == 0) throw IOException("Goal was not updated. It may have been deleted or you may no longer own it.")
+    }
+
+    suspend fun deleteGoal(goalId: String, ownerId: String) {
+        requireValidId(goalId)
+        requireValidId(ownerId)
+        val result = request(
+            "DELETE",
+            "/rest/v1/goals?id=eq.$goalId&owner_id=eq.$ownerId",
+            extraHeaders = mapOf("Prefer" to "return=representation")
+        )
+        if (JSONArray(result).length() == 0) throw IOException("Goal was not deleted. It may already be gone or you may not own it.")
+    }
+
     suspend fun sendConnection(receiverId: String, goalId: String, senderId: String) {
         requireValidId(receiverId)
         requireValidId(goalId)
