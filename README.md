@@ -5,7 +5,7 @@ HumanMesh is an Android-first goal discovery and collaboration app. This reposit
 ## Current implementation
 - Native Android app using Kotlin and Jetpack Compose.
 - Email/password authentication against Supabase Auth when backend configuration is supplied.
-- Goal discovery and creation with contribution and target-timeline fields, explainable skill-fit reasons, goal-linked team rooms, room messages, connection requests, shared tasks/milestones, collaboration outcomes with teammate confirmations, profile editing, and report/block controls.
+- Goal discovery and creation with contribution and target-timeline fields, explainable skill-fit reasons, goal-linked team rooms with member invitations, room messages, connection requests, shared tasks/milestones, collaboration outcomes with teammate confirmations, profile editing, and report/block controls.
 - Local encrypted storage for session tokens; Android backup disabled; cleartext traffic disabled.
 - PostgreSQL schema with Row Level Security (RLS) and per-user policies.
 - GitHub Actions builds a debug APK and runs Android lint/unit tests.
@@ -20,7 +20,7 @@ The app includes a clearly labelled local demo mode when no backend is configure
 
 ## Configure the real backend
 1. Create a Supabase project.
-2. In Supabase SQL Editor, run `supabase/migrations/0001_humanmesh_schema.sql` first, then run `supabase/migrations/0002_collaboration_progress.sql`. Apply both in order; the second migration adds goal contribution/timeline fields, project tasks and milestones, and teammate-confirmed outcomes.
+2. In Supabase SQL Editor, run `supabase/migrations/0001_humanmesh_schema.sql` first, then run `supabase/migrations/0002_collaboration_progress.sql`, and finally `supabase/migrations/0003_room_invitations.sql`. Apply all three in order. The later migrations add contribution/timeline fields, tasks, milestones, teammate-confirmed outcomes, and room invitations.
 3. In GitHub repository **Settings → Secrets and variables → Actions**, add:
    - `SUPABASE_URL`: the project's HTTPS project URL
    - `SUPABASE_ANON_KEY`: the project's publishable/anon key only. **Never put the service-role key in the Android app or GitHub build variables.**
