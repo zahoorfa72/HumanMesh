@@ -395,6 +395,41 @@ class HumanMeshApi(private val sessions: SessionStore) {
     }
 
 
+
+    suspend fun getRoomInvitations(userId: String): List<RoomInvitation> {
+        requireValidId(userId)
+        val response = request(
+            "GET",
+            "/rest/v1/room_invitations?select=id,room_id,inviter_id,invitee_id,status,created_at&or=(invitee_id.eq.$userId,inviter_id.eq.$userId)&order=created_at.desc&limit=100"
+        )
+        val rows = JSONArray(response)
+        return (0 until rows.length()).map { RoomInvitation.from(rows.getJSONObject(it)) }
+    }
+
+    suspend fun inviteRoomMember(roomId: String, inviterId: String, inviteeId: String) {
+        requireValidId(roomId)
+        requireValidId(inviterId)
+        requireValidId(inviteeId)
+        require(inviterId != inviteeId) { "You cannot invite yourself." }
+        request(
+            "POST",
+            "/rest/v1/room_invitations",
+            JSONObject().put("room_id", roomId).put("inviter_id", inviterId).put("invitee_id", inviteeId).put("status", "pending"),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
+    suspend fun respondToRoomInvitation(invitationId: String, status: String) {
+        requireValidId(invitationId)
+        require(status == "accepted" || status == "rejected")
+        request(
+            "PATCH",
+            "/rest/v1/room_invitations?id=eq.$invitationId",
+            JSONObject().put("status", status),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
     suspend fun getProjectItems(roomId: String): List<ProjectItem> {
         requireValidId(roomId)
         val response = request(
