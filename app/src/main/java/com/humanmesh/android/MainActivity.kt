@@ -134,6 +134,7 @@ private fun HumanMeshApp(
     var outgoingRequests by remember { mutableStateOf(emptyList<MatchRequest>()) }
     var profile by remember { mutableStateOf<UserProfile?>(null) }
     var memberProfiles by remember { mutableStateOf(emptyMap<String, UserProfile>()) }
+    var directoryProfiles by remember { mutableStateOf(emptyList<UserProfile>()) }
     var selectedRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
     var messages by remember { mutableStateOf(emptyList<RoomMessage>()) }
     var notice by remember { mutableStateOf("") }
@@ -176,6 +177,7 @@ private fun HumanMeshApp(
                 goals = api.getGoals()
                 ownGoals = api.getGoals(ownOnly = true, ownerId = signedIn.userId)
                 rooms = api.getRooms()
+                directoryProfiles = api.getDirectoryProfiles()
                 memberProfiles = api.getProfilesByIds((goals.map { it.ownerId } + signedIn.userId).distinct())
                 if (activeTab == MainTab.Connect) {
                     val pair = api.getConnections(signedIn.userId)
@@ -230,6 +232,7 @@ private fun HumanMeshApp(
                 rooms = demoRooms()
                 profile = null
                 memberProfiles = demoProfiles()
+                directoryProfiles = demoProfiles().values.toList()
                 notice = "Demo mode uses sample content only. No real accounts or other people are connected."
             },
             onSignIn = { email, password ->
@@ -355,6 +358,7 @@ private fun HumanMeshApp(
                         currentUserId = signedIn?.userId ?: "demo-user",
                         mySkills = if (demoMode) listOf("Android", "UX research", "Education", "Kotlin") else profile?.skills.orEmpty(),
                         ownerProfiles = memberProfiles,
+                        people = directoryProfiles,
                         demoMode = demoMode,
                         onConnect = { goal ->
                             if (demoMode) notice = "Demo only: connections are not sent to real users."
@@ -367,6 +371,7 @@ private fun HumanMeshApp(
                             if (demoMode) notice = "Sample content refreshed."
                             else runTask {
                                 goals = api.getGoals()
+                                directoryProfiles = api.getDirectoryProfiles()
                                 memberProfiles = memberProfiles + api.getProfilesByIds(goals.map { it.ownerId }.distinct())
                             }
                         }
@@ -751,11 +756,26 @@ private fun ExplorePanel(
     currentUserId: String,
     mySkills: List<String>,
     ownerProfiles: Map<String, UserProfile>,
+    people: List<UserProfile>,
     demoMode: Boolean,
     onConnect: (Goal) -> Unit,
     onRefresh: () -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
+    var showingPeople by rememberSaveable { mutableStateOf(false) }
+    val visiblePeople = remember(people, mySkills, query, currentUserId) {
+        people.filter { person ->
+            person.id != currentUserId &&
+                (query.isBlank() ||
+                    person.displayName.contains(query, ignoreCase = true) ||
+                    person.username.contains(query, ignoreCase = true) ||
+                    person.bio.contains(query, ignoreCase = true) ||
+                    person.skills.any { it.contains(query, ignoreCase = true) })
+        }.sortedWith(
+            compareByDescending<UserProfile> { SkillMatcher.score(it.skills, mySkills) ?: -1 }
+                .thenBy { it.displayName.lowercase() }
+        )
+    }
     val visibleGoals = remember(goals, mySkills, query) {
         goals
             .filter { goal ->
@@ -783,11 +803,24 @@ private fun ExplorePanel(
                 Spacer(Modifier.height(7.dp))
                 Text("Discover goals you can help move forward.", color = Color(0xFFB7B7CC), fontSize = 14.sp)
                 Spacer(Modifier.height(14.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    if (showingPeople) {
+                        OutlinedButton(onClick = { showingPeople = false; query = "" }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Goals") }
+                    } else {
+                        Button(onClick = { showingPeople = false; query = "" }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("Goals") }
+                    }
+                    if (showingPeople) {
+                        Button(onClick = { showingPeople = true; query = "" }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("People") }
+                    } else {
+                        OutlinedButton(onClick = { showingPeople = true; query = "" }, modifier = Modifier.weight(1f), shape = RoundedCornerShape(12.dp)) { Text("People") }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
                 OutlinedTextField(
                     value = query,
                     onValueChange = { query = it.take(100) },
                     modifier = Modifier.fillMaxWidth(),
-                    label = { Text("Search goals, topics, and skills") },
+                    label = { Text(if (showingPeople) "Search people and skills" else "Search goals, topics, and skills") },
                     singleLine = true,
                     shape = RoundedCornerShape(14.dp)
                 )
@@ -803,7 +836,26 @@ private fun ExplorePanel(
                 }
             }
         }
-        if (visibleGoals.isEmpty()) {
+        if (showingPeople) {
+            if (visiblePeople.isEmpty()) {
+                item {
+                    EmptyState(
+                        title = if (query.isBlank()) "No member profiles yet" else "No people found",
+                        subtitle = if (query.isNotBlank()) "Try another name, username, or skill." else "People who create a profile will appear here."
+                    )
+                }
+            } else {
+                items(visiblePeople, key = { it.id }) { person ->
+                    val openGoal = goals.firstOrNull { it.ownerId == person.id && it.status == "active" }
+                    PersonCard(
+                        profile = person,
+                        skillFitPercent = SkillMatcher.score(person.skills, mySkills),
+                        hasOpenGoal = openGoal != null,
+                        onConnect = { if (openGoal != null) onConnect(openGoal) }
+                    )
+                }
+            }
+        } else if (visibleGoals.isEmpty()) {
             item {
                 EmptyState(
                     title = if (query.isBlank()) "Nothing here yet" else "No goals found",
@@ -821,6 +873,60 @@ private fun ExplorePanel(
                     ownerProfile = ownerProfiles[goal.ownerId]
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun PersonCard(
+    profile: UserProfile,
+    skillFitPercent: Int?,
+    hasOpenGoal: Boolean,
+    onConnect: () -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))
+    ) {
+        Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier.size(44.dp).background(
+                        Brush.linearGradient(listOf(Color(0xFF9B8AFB), Color(0xFF62D8BD))),
+                        CircleShape
+                    ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(profile.displayName.take(1).uppercase(), color = Color(0xFF10111B), fontWeight = FontWeight.ExtraBold, fontSize = 18.sp)
+                }
+                Spacer(Modifier.width(10.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(profile.displayName, fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                    Text("@${profile.username}", color = Color(0xFF9B8AFB), fontSize = 11.sp)
+                }
+                if (skillFitPercent != null && skillFitPercent > 0) {
+                    Text("${skillFitPercent}% fit", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            if (profile.bio.isNotBlank()) {
+                Text(profile.bio, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 20.sp)
+            }
+            if (profile.skills.isNotEmpty()) {
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    profile.skills.take(4).forEach { skill ->
+                        Surface(color = Color(0xFF292B40), shape = RoundedCornerShape(9.dp)) {
+                            Text(skill, modifier = Modifier.padding(horizontal = 8.dp, vertical = 5.dp), color = Color(0xFFD8D5F7), fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
+            Button(
+                onClick = onConnect,
+                enabled = hasOpenGoal,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text(if (hasOpenGoal) "Request collaboration" else "No open public goal") }
         }
     }
 }
