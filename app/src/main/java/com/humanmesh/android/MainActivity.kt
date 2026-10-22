@@ -13,7 +13,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.WindowInsets.Companion.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -93,7 +93,7 @@ private fun HumanMeshApp() {
     val api = remember { HumanMeshApi(sessions) }
     val scope = rememberCoroutineScope()
 
-    var current by remember { mutableStateOf(sessions.read()) }
+    var current by remember { mutableStateOf(if (api.isConfigured) sessions.read() else null) }
     var demoMode by rememberSaveable { mutableStateOf(false) }
     var activeTab by rememberSaveable { mutableStateOf(MainTab.Explore) }
     var goals by remember { mutableStateOf(demoGoals()) }
@@ -109,6 +109,10 @@ private fun HumanMeshApp() {
     var showGoalDialog by remember { mutableStateOf(false) }
     var showRoomDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+
+    LaunchedEffect(api.isConfigured) {
+        if (!api.isConfigured) sessions.clear()
+    }
 
     fun runTask(task: suspend () -> Unit) {
         scope.launch {
