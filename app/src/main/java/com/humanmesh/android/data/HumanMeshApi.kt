@@ -176,6 +176,34 @@ class HumanMeshApi(private val sessions: SessionStore) {
         )
     }
 
+    suspend fun getConnections(userId: String): Pair<List<MatchRequest>, List<MatchRequest>> {
+        requireValidId(userId)
+        val incomingJson = request(
+            "GET",
+            "/rest/v1/match_requests?select=id,sender_id,receiver_id,goal_id,message,status&receiver_id=eq.$userId&order=created_at.desc&limit=50"
+        )
+        val outgoingJson = request(
+            "GET",
+            "/rest/v1/match_requests?select=id,sender_id,receiver_id,goal_id,message,status&sender_id=eq.$userId&order=created_at.desc&limit=50"
+        )
+        val incomingRows = JSONArray(incomingJson)
+        val outgoingRows = JSONArray(outgoingJson)
+        val incoming = (0 until incomingRows.length()).map { MatchRequest.from(incomingRows.getJSONObject(it)) }
+        val outgoing = (0 until outgoingRows.length()).map { MatchRequest.from(outgoingRows.getJSONObject(it)) }
+        return incoming to outgoing
+    }
+
+    suspend fun respondToConnection(requestId: String, status: String) {
+        requireValidId(requestId)
+        require(status == "accepted" || status == "rejected")
+        request(
+            "PATCH",
+            "/rest/v1/match_requests?id=eq.$requestId",
+            JSONObject().put("status", status),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
     suspend fun getRooms(): List<OpportunityRoom> {
         val response = request(
             "GET",
