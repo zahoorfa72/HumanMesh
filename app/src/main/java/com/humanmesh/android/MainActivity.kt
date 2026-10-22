@@ -61,6 +61,7 @@ import com.humanmesh.android.data.MatchRequest
 import com.humanmesh.android.data.OpportunityRoom
 import com.humanmesh.android.data.RoomMessage
 import com.humanmesh.android.data.SessionStore
+import com.humanmesh.android.data.SkillMatcher
 import com.humanmesh.android.data.UserProfile
 import com.humanmesh.android.data.UserSession
 import com.humanmesh.android.ui.HumanMeshTheme
@@ -282,6 +283,7 @@ private fun HumanMeshApp() {
                     MainTab.Explore -> ExplorePanel(
                         goals = goals,
                         currentUserId = signedIn?.userId ?: "demo-user",
+                        mySkills = if (demoMode) listOf("Android", "UX research", "Education", "Kotlin") else profile?.skills.orEmpty(),
                         demoMode = demoMode,
                         onConnect = { goal ->
                             if (demoMode) notice = "Demo only: connections are not sent to real users."
@@ -550,10 +552,26 @@ private fun AuthScreen(
 private fun ExplorePanel(
     goals: List<Goal>,
     currentUserId: String,
+    mySkills: List<String>,
     demoMode: Boolean,
     onConnect: (Goal) -> Unit,
     onRefresh: () -> Unit
 ) {
+    var query by rememberSaveable { mutableStateOf("") }
+    val visibleGoals = remember(goals, mySkills, query) {
+        goals
+            .filter { goal ->
+                query.isBlank() ||
+                    goal.title.contains(query, ignoreCase = true) ||
+                    goal.description.contains(query, ignoreCase = true) ||
+                    goal.category.contains(query, ignoreCase = true) ||
+                    goal.requiredSkills.any { it.contains(query, ignoreCase = true) }
+            }
+            .sortedWith(
+                compareByDescending<Goal> { SkillMatcher.score(it.requiredSkills, mySkills) ?: -1 }
+                    .thenByDescending { it.status == "active" }
+            )
+    }
     LazyColumn(
         modifier = Modifier.fillMaxSize(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 18.dp, vertical = 16.dp),
@@ -566,7 +584,20 @@ private fun ExplorePanel(
                 Text("Big goals are better shared.", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 33.sp)
                 Spacer(Modifier.height(7.dp))
                 Text("Discover goals you can help move forward.", color = Color(0xFFB7B7CC), fontSize = 14.sp)
-                Spacer(Modifier.height(12.dp))
+                Spacer(Modifier.height(14.dp))
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it.take(100) },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("Search goals, topics, and skills") },
+                    singleLine = true,
+                    shape = RoundedCornerShape(14.dp)
+                )
+                if (mySkills.isEmpty() && !demoMode) {
+                    Spacer(Modifier.height(4.dp))
+                    Text("Add skills in your Profile to see skill-fit ranking.", color = Color(0xFF8E90A7), fontSize = 11.sp)
+                }
+                Spacer(Modifier.height(5.dp))
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(if (demoMode) "SAMPLE GOALS" else "PUBLIC GOALS", color = Color(0xFF6BE0C1), fontSize = 11.sp, fontWeight = FontWeight.Bold)
                     Spacer(Modifier.weight(1f))
@@ -574,20 +605,21 @@ private fun ExplorePanel(
                 }
             }
         }
-        if (goals.isEmpty()) {
+        if (visibleGoals.isEmpty()) {
             item {
                 EmptyState(
-                    title = "Nothing here yet",
-                    subtitle = if (demoMode) "Use My goals to add a sample goal." else "Be one of the first to publish a goal that needs collaborators."
+                    title = if (query.isBlank()) "Nothing here yet" else "No goals found",
+                    subtitle = if (query.isNotBlank()) "Try another topic or skill." else if (demoMode) "Use My goals to add a sample goal." else "Be one of the first to publish a goal that needs collaborators."
                 )
             }
         } else {
-            items(goals, key = { it.id }) { goal ->
+            items(visibleGoals, key = { it.id }) { goal ->
                 GoalCard(
                     goal = goal,
                     ownGoal = goal.ownerId == currentUserId || (demoMode && goal.ownerId == "demo-user"),
                     demoMode = demoMode,
-                    onConnect = { onConnect(goal) }
+                    onConnect = { onConnect(goal) },
+                    skillFitPercent = SkillMatcher.score(goal.requiredSkills, mySkills)
                 )
             }
         }
@@ -595,7 +627,13 @@ private fun ExplorePanel(
 }
 
 @Composable
-private fun GoalCard(goal: Goal, ownGoal: Boolean, demoMode: Boolean, onConnect: () -> Unit) {
+private fun GoalCard(
+    goal: Goal,
+    ownGoal: Boolean,
+    demoMode: Boolean,
+    onConnect: () -> Unit,
+    skillFitPercent: Int? = null
+) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(22.dp),
@@ -610,6 +648,14 @@ private fun GoalCard(goal: Goal, ownGoal: Boolean, demoMode: Boolean, onConnect:
                 }
             }
             Text(goal.title, fontSize = 20.sp, fontWeight = FontWeight.Bold, lineHeight = 25.sp)
+            if (skillFitPercent != null && goal.requiredSkills.isNotEmpty() && skillFitPercent > 0) {
+                Text(
+                    "SKILL OVERLAP · $skillFitPercent%",
+                    color = Color(0xFF6BE0C1),
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
             Text(goal.description.ifBlank { "A new opportunity to bring good people together." }, color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 20.sp)
             if (goal.requiredSkills.isNotEmpty()) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
