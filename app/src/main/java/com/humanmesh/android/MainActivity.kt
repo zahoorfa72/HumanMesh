@@ -439,7 +439,7 @@ private fun HumanMeshApp(
                     MainTab.Progress -> ProgressPanel(
                         rooms = rooms,
                         selectedRoom = selectedProgressRoom,
-                        items = progressItems,
+                        projectItems = progressItems,
                         outcomes = goalOutcomes,
                         currentUserId = signedIn?.userId ?: "demo-user",
                         demoMode = demoMode,
@@ -1447,7 +1447,7 @@ private fun SafetyPanel(
 private fun ProgressPanel(
     rooms: List<OpportunityRoom>,
     selectedRoom: OpportunityRoom?,
-    items: List<ProjectItem>,
+    projectItems: List<ProjectItem>,
     outcomes: List<GoalOutcome>,
     currentUserId: String,
     demoMode: Boolean,
@@ -1502,7 +1502,7 @@ private fun ProgressPanel(
             TextButton(onClick = onBack) { Text("← All team rooms") }
             Text("Team progress", fontSize = 27.sp, fontWeight = FontWeight.ExtraBold)
             Text(selectedRoom.title, color = Color(0xFF6BE0C1), fontSize = 17.sp, fontWeight = FontWeight.Bold)
-            Text("Tasks completed: ${items.count { it.status == "completed" }} / ${items.size}  ·  Milestones completed: ${items.count { it.itemType == "milestone" && it.status == "completed" }}", color = Color(0xFFB7B7CC), fontSize = 12.sp)
+            Text("Tasks completed: ${projectItems.count { it.status == "completed" }} / ${projectItems.size}  ·  Milestones completed: ${projectItems.count { it.itemType == "milestone" && it.status == "completed" }}", color = Color(0xFFB7B7CC), fontSize = 12.sp)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onRefresh, enabled = !loading, modifier = Modifier.weight(1f)) { Text("Refresh") }
                 OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Switch room") }
@@ -1527,8 +1527,8 @@ private fun ProgressPanel(
                 }
             }
             Text("TASKS & MILESTONES", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
-            if (items.isEmpty()) Text("No tasks yet. Add the first clear next step.", color = Color(0xFFB7B7CC), fontSize = 13.sp)
-            items.forEach { item ->
+            if (projectItems.isEmpty()) Text("No tasks yet. Add the first clear next step.", color = Color(0xFFB7B7CC), fontSize = 13.sp)
+            projectItems.forEach { item ->
                 Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
                     Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(item.itemType.uppercase() + if (item.status == "completed") " · COMPLETED" else " · OPEN", color = if (item.status == "completed") Color(0xFF6BE0C1) else Color(0xFF9B8AFB), fontSize = 10.sp, fontWeight = FontWeight.Bold)
