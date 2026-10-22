@@ -62,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import com.humanmesh.android.data.Goal
 import com.humanmesh.android.data.GoalOutcome
 import com.humanmesh.android.data.ProjectItem
+import com.humanmesh.android.data.RoomInvitation
 import com.humanmesh.android.data.HumanMeshApi
 import com.humanmesh.android.data.MatchRequest
 import com.humanmesh.android.data.OpportunityRoom
@@ -145,6 +146,7 @@ private fun HumanMeshApp(
     var selectedProgressRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
     var progressItems by remember { mutableStateOf(emptyList<ProjectItem>()) }
     var goalOutcomes by remember { mutableStateOf(emptyList<GoalOutcome>()) }
+    var roomInvitations by remember { mutableStateOf(emptyList<RoomInvitation>()) }
     var notice by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var showGoalDialog by remember { mutableStateOf(false) }
@@ -195,9 +197,12 @@ private fun HumanMeshApp(
                     memberProfiles = memberProfiles + api.getProfilesByIds(otherIds.distinct())
                 }
                 if (selectedRoom != null) messages = api.getMessages(selectedRoom!!.id)
-                if (activeTab == MainTab.Progress && selectedProgressRoom != null) {
-                    progressItems = api.getProjectItems(selectedProgressRoom!!.id)
-                    goalOutcomes = api.getGoalOutcomes(selectedProgressRoom!!.id)
+                if (activeTab == MainTab.Progress) {
+                    roomInvitations = api.getRoomInvitations(signedIn.userId)
+                    if (selectedProgressRoom != null) {
+                        progressItems = api.getProjectItems(selectedProgressRoom!!.id)
+                        goalOutcomes = api.getGoalOutcomes(selectedProgressRoom!!.id)
+                    }
                 }
             }.onFailure {
                 notice = it.message?.take(180) ?: "Could not refresh HumanMesh."
@@ -441,6 +446,7 @@ private fun HumanMeshApp(
                         selectedRoom = selectedProgressRoom,
                         projectItems = progressItems,
                         outcomes = goalOutcomes,
+                        invitations = roomInvitations,
                         currentUserId = signedIn?.userId ?: "demo-user",
                         demoMode = demoMode,
                         loading = busy,
@@ -509,6 +515,28 @@ private fun HumanMeshApp(
                                 api.confirmGoalOutcome(outcome.id, signedIn.userId)
                                 goalOutcomes = api.getGoalOutcomes(outcome.roomId)
                                 notice = "You confirmed this collaboration result."
+                            }
+                        },
+                        onInviteMember = { username ->
+                            val room = selectedProgressRoom
+                            if (demoMode) notice = "Invitations require a real account and online backend."
+                            else if (room != null && signedIn != null) runTask {
+                                val target = api.getProfileByUsername(username)
+                                if (target == null) {
+                                    notice = "Member not found. Check the username."
+                                } else {
+                                    api.inviteRoomMember(room.id, signedIn.userId, target.id)
+                                    roomInvitations = api.getRoomInvitations(signedIn.userId)
+                                    notice = "Team invitation sent to @${target.username}."
+                                }
+                            }
+                        },
+                        onRespondInvitation = { invitation, status ->
+                            if (!demoMode && signedIn != null) runTask {
+                                api.respondToRoomInvitation(invitation.id, status)
+                                roomInvitations = api.getRoomInvitations(signedIn.userId)
+                                rooms = api.getRooms()
+                                notice = if (status == "accepted") "Invitation accepted. You joined the team room." else "Invitation declined."
                             }
                         }
                     )
@@ -1449,6 +1477,7 @@ private fun ProgressPanel(
     selectedRoom: OpportunityRoom?,
     projectItems: List<ProjectItem>,
     outcomes: List<GoalOutcome>,
+    invitations: List<RoomInvitation>,
     currentUserId: String,
     demoMode: Boolean,
     loading: Boolean,
@@ -1458,12 +1487,15 @@ private fun ProgressPanel(
     onAddItem: (String, String, String) -> Unit,
     onToggleItem: (ProjectItem) -> Unit,
     onAddOutcome: (String, String) -> Unit,
-    onConfirmOutcome: (GoalOutcome) -> Unit
+    onConfirmOutcome: (GoalOutcome) -> Unit,
+    onInviteMember: (String) -> Unit,
+    onRespondInvitation: (RoomInvitation, String) -> Unit
 ) {
     var itemTitle by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
     var itemDescription by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
     var outcomeTitle by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
     var outcomeSummary by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
+    var inviteUsername by rememberSaveable(selectedRoom?.id) { mutableStateOf("") }
     if (selectedRoom == null) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -1474,8 +1506,27 @@ private fun ProgressPanel(
                 Text("Progress & results", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
                 Text("Turn collaboration into visible progress. Tasks, milestones and results are shared with room members.", color = Color(0xFFB7B7CC), fontSize = 14.sp, lineHeight = 21.sp)
                 Spacer(Modifier.height(5.dp))
-                Text("SELECT A TEAM ROOM", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                Text("TEAM INVITATIONS", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold)
             }
+            val incomingInvitations = invitations.filter { it.inviteeId == currentUserId && it.status == "pending" }
+            if (incomingInvitations.isEmpty()) {
+                item { Text("No pending team invitations.", color = Color(0xFFB7B7CC), fontSize = 12.sp) }
+            } else {
+                items(incomingInvitations, key = { "inv-" + it.id }) { invitation ->
+                    val roomTitle = rooms.firstOrNull { it.id == invitation.roomId }?.title ?: "Team room"
+                    Card(shape = RoundedCornerShape(16.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                        Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+                            Text(roomTitle, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                            Text("Invited you to join this collaboration room.", color = Color(0xFFB7B7CC), fontSize = 12.sp)
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                OutlinedButton(onClick = { onRespondInvitation(invitation, "rejected") }, modifier = Modifier.weight(1f)) { Text("Decline") }
+                                Button(onClick = { onRespondInvitation(invitation, "accepted") }, modifier = Modifier.weight(1f)) { Text("Accept") }
+                            }
+                        }
+                    }
+                }
+            }
+            item { Text("SELECT A TEAM ROOM", color = Color(0xFF6BE0C1), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
             if (rooms.isEmpty()) {
                 item { EmptyState("Create your first team room", "Open Rooms, start a room, and link it to one of your goals. Then manage tasks and results here.") }
             } else {
@@ -1506,6 +1557,14 @@ private fun ProgressPanel(
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton(onClick = onRefresh, enabled = !loading, modifier = Modifier.weight(1f)) { Text("Refresh") }
                 OutlinedButton(onClick = onBack, modifier = Modifier.weight(1f)) { Text("Switch room") }
+            }
+            Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+                Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Text("Invite a collaborator", fontSize = 17.sp, fontWeight = FontWeight.Bold)
+                    Text("Invite a HumanMesh member by username. They must accept before they become a room member.", color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
+                    OutlinedTextField(inviteUsername, { inviteUsername = it.removePrefix("@").lowercase().filter { ch -> ch.isLetterOrDigit() || ch == '_' }.take(30) }, label = { Text("Member username") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    Button(onClick = { onInviteMember(inviteUsername); inviteUsername = "" }, enabled = !loading && !demoMode && inviteUsername.length >= 3, modifier = Modifier.fillMaxWidth()) { Text("Send team invitation") }
+                }
             }
             Card(shape = RoundedCornerShape(18.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
                 Column(Modifier.padding(15.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
