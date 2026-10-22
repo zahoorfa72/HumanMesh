@@ -1,6 +1,8 @@
 package com.humanmesh.android
 
 import android.os.Bundle
+import android.content.Intent
+import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -69,9 +71,36 @@ import kotlinx.coroutines.launch
 import java.util.UUID
 
 class MainActivity : ComponentActivity() {
+    private var recoveryAccessToken by mutableStateOf<String?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContent { HumanMeshTheme { HumanMeshApp() } }
+        recoveryAccessToken = extractRecoveryAccessToken(intent)
+        setContent {
+            HumanMeshTheme {
+                HumanMeshApp(
+                    recoveryAccessToken = recoveryAccessToken,
+                    onRecoveryFinished = { recoveryAccessToken = null }
+                )
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        recoveryAccessToken = extractRecoveryAccessToken(intent)
+    }
+
+    private fun extractRecoveryAccessToken(intent: Intent?): String? {
+        val uri = intent?.data ?: return null
+        if (uri.scheme != "humanmesh" || uri.host != "auth" || uri.path != "/reset") return null
+        val parameters = uri.fragment.orEmpty().split("&").mapNotNull { item ->
+            val pair = item.split("=", limit = 2)
+            if (pair.size == 2) Uri.decode(pair[0]) to Uri.decode(pair[1]) else null
+        }.toMap()
+        if (parameters["type"] != "recovery") return null
+        return parameters["access_token"]?.takeIf { it.length in 10..8192 }
     }
 }
 
@@ -86,7 +115,10 @@ private enum class MainTab(val label: String, val symbol: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun HumanMeshApp() {
+private fun HumanMeshApp(
+    recoveryAccessToken: String?,
+    onRecoveryFinished: () -> Unit
+) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val sessions = remember { SessionStore(context) }
     val api = remember { HumanMeshApi(sessions) }
@@ -198,12 +230,42 @@ private fun HumanMeshApp() {
                         notice = "Your HumanMesh account is ready."
                     }
                 }
+            },
+            onForgotPassword = { email ->
+                runTask {
+                    api.requestPasswordReset(email)
+                    notice = "If that email is registered, password reset instructions have been sent."
+                }
             }
         )
         return
     }
 
     val signedIn = current
+    val resetToken = recoveryAccessToken
+    if (resetToken != null) {
+        PasswordResetScreen(
+            loading = busy,
+            message = notice,
+            onClearMessage = { notice = "" },
+            onCancel = {
+                notice = "Password reset cancelled. Return to sign in when ready."
+                onRecoveryFinished()
+            },
+            onSubmit = { newPassword ->
+                runTask {
+                    api.updatePasswordFromRecovery(newPassword, resetToken)
+                    sessions.clear()
+                    current = null
+                    profile = null
+                    demoMode = false
+                    notice = "Password changed. Sign in using your new password."
+                    onRecoveryFinished()
+                }
+            }
+        )
+        return
+    }
     Scaffold(
         containerColor = Color(0xFF10111B),
         topBar = {
@@ -525,6 +587,63 @@ private fun HumanMeshApp() {
     }
 }
 
+
+@Composable
+private fun PasswordResetScreen(
+    loading: Boolean,
+    message: String,
+    onClearMessage: () -> Unit,
+    onCancel: () -> Unit,
+    onSubmit: (String) -> Unit
+) {
+    var password by rememberSaveable { mutableStateOf("") }
+    var confirmPassword by rememberSaveable { mutableStateOf("") }
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Brush.verticalGradient(listOf(Color(0xFF20203A), Color(0xFF10111B))))
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(22.dp),
+            verticalArrangement = Arrangement.Center
+        ) {
+            Text("Secure your account", fontSize = 29.sp, fontWeight = FontWeight.ExtraBold)
+            Spacer(Modifier.height(8.dp))
+            Text("Choose a new password. The reset link is time-limited; request another one if it has expired.", color = Color(0xFFB7B7CC), fontSize = 14.sp, lineHeight = 21.sp)
+            Spacer(Modifier.height(20.dp))
+            OutlinedTextField(
+                value = password,
+                onValueChange = { password = it.take(128) },
+                label = { Text("New password") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = confirmPassword,
+                onValueChange = { confirmPassword = it.take(128) },
+                label = { Text("Confirm new password") },
+                visualTransformation = PasswordVisualTransformation(),
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true
+            )
+            if (message.isNotBlank()) {
+                Spacer(Modifier.height(10.dp))
+                NoticeBanner(message, onClearMessage)
+            }
+            Spacer(Modifier.height(14.dp))
+            Button(
+                onClick = { onSubmit(password) },
+                enabled = !loading && password.length >= 8 && password == confirmPassword,
+                modifier = Modifier.fillMaxWidth().height(48.dp),
+                shape = RoundedCornerShape(14.dp)
+            ) { Text(if (loading) "Updating…" else "Update password") }
+            TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Back to sign in") }
+        }
+    }
+}
+
 @Composable
 private fun AuthScreen(
     configured: Boolean,
@@ -533,7 +652,8 @@ private fun AuthScreen(
     onClearMessage: () -> Unit,
     onDemo: () -> Unit,
     onSignIn: (String, String) -> Unit,
-    onSignUp: (String, String, String) -> Unit
+    onSignUp: (String, String, String) -> Unit,
+    onForgotPassword: (String) -> Unit
 ) {
     var createAccount by rememberSaveable { mutableStateOf(false) }
     var email by rememberSaveable { mutableStateOf("") }
@@ -598,6 +718,13 @@ private fun AuthScreen(
                         shape = RoundedCornerShape(15.dp)
                     ) {
                         Text(if (loading) "Please wait…" else if (createAccount) "Create account" else "Sign in", fontWeight = FontWeight.Bold)
+                    }
+                    if (!createAccount) {
+                        TextButton(
+                            onClick = { onForgotPassword(email) },
+                            enabled = configured && !loading && email.contains("@"),
+                            modifier = Modifier.fillMaxWidth()
+                        ) { Text("Forgot password?") }
                     }
                     TextButton(
                         onClick = { createAccount = !createAccount; onClearMessage() },
