@@ -1559,6 +1559,8 @@ private fun RoomChatPanel(
 @Composable
 private fun ProfilePanel(
     profile: UserProfile?,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     email: String,
     demoMode: Boolean,
     loading: Boolean,
