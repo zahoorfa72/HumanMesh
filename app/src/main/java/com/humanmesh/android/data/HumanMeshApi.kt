@@ -39,7 +39,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
     suspend fun signUp(email: String, password: String): UserSession? {
         val result = request(
             "POST",
-            "/auth/v1/signup",
+            "/auth/v1/signup?redirect_to=humanmesh%3A%2F%2Fauth%2Fverify",
             JSONObject().put("email", email.trim()).put("password", password),
             authenticated = false
         )
