@@ -285,23 +285,31 @@ private fun HumanMeshApp(
             onSignIn = { email, password ->
                 runTask {
                     val session = api.signIn(email, password)
-                    api.sendEmailMfaCode(session)
-                    pendingEmailMfaSession = session
-                    pendingMfaName = ""
-                    notice = "We sent a six-digit verification code to " + session.email + "."
+                    api.ensureProfile(session, session.email.substringBefore("@").ifBlank { "New member" })
+                    current = session
+                    demoMode = false
+                    activeTab = MainTab.Explore
+                    notice = "Welcome back."
                 }
             },
             onSignUp = { email, password, name ->
                 runTask {
                     val session = api.signUp(email, password)
                     if (session == null) {
-                        notice = "Account request sent. Verify your email, then return here to sign in."
+                        notice = "Verification email requested. Check your inbox and spam folder. If it does not arrive, use Resend verification email below."
                     } else {
-                        api.sendEmailMfaCode(session)
-                        pendingEmailMfaSession = session
-                        pendingMfaName = name
-                        notice = "We sent a six-digit verification code to " + session.email + "."
+                        api.ensureProfile(session, name)
+                        current = session
+                        demoMode = false
+                        activeTab = MainTab.Explore
+                        notice = "Account created successfully."
                     }
+                }
+            },
+            onResendVerification = { email ->
+                runTask {
+                    api.resendSignupVerification(email)
+                    notice = "Verification request accepted. Check your inbox and spam folder. If you requested recently, wait before trying again."
                 }
             },
             onForgotPassword = { email ->
@@ -896,6 +904,7 @@ private fun AuthScreen(
     onDemo: () -> Unit,
     onSignIn: (String, String) -> Unit,
     onSignUp: (String, String, String) -> Unit,
+    onResendVerification: (String) -> Unit,
     onForgotPassword: (String) -> Unit,
     pendingVerificationEmail: String?,
     onVerifyEmailCode: (String) -> Unit,
