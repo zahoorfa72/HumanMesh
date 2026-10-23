@@ -33,6 +33,9 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedButton
@@ -59,6 +62,10 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Visibility
+import androidx.compose.material.icons.outlined.VisibilityOff
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -742,6 +749,8 @@ private fun PasswordResetScreen(
 ) {
     var password by rememberSaveable { mutableStateOf("") }
     var confirmPassword by rememberSaveable { mutableStateOf("") }
+    var showResetPassword by rememberSaveable { mutableStateOf(false) }
+    var showConfirmPassword by rememberSaveable { mutableStateOf(false) }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -759,16 +768,19 @@ private fun PasswordResetScreen(
                 value = password,
                 onValueChange = { password = it.take(128) },
                 label = { Text("New password") },
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (showResetPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = { IconButton(onClick = { showResetPassword = !showResetPassword }) { Icon(if (showResetPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (showResetPassword) "Hide password" else "Show password") } },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
+            PasswordStrengthIndicator(password)
             Spacer(Modifier.height(10.dp))
             OutlinedTextField(
                 value = confirmPassword,
                 onValueChange = { confirmPassword = it.take(128) },
                 label = { Text("Confirm new password") },
-                visualTransformation = PasswordVisualTransformation(),
+                visualTransformation = if (showConfirmPassword) VisualTransformation.None else PasswordVisualTransformation(),
+                trailingIcon = { IconButton(onClick = { showConfirmPassword = !showConfirmPassword }) { Icon(if (showConfirmPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (showConfirmPassword) "Hide password" else "Show password") } },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true
             )
@@ -779,12 +791,68 @@ private fun PasswordResetScreen(
             Spacer(Modifier.height(14.dp))
             Button(
                 onClick = { onSubmit(password) },
-                enabled = !loading && password.length >= 8 && password == confirmPassword,
+                enabled = !loading && isStrongPassword(password) && password == confirmPassword,
                 modifier = Modifier.fillMaxWidth().height(48.dp),
                 shape = RoundedCornerShape(14.dp)
             ) { Text(if (loading) "Updating…" else "Update password") }
             TextButton(onClick = onCancel, modifier = Modifier.fillMaxWidth()) { Text("Back to sign in") }
         }
+    }
+}
+
+private fun isStrongPassword(password: String): Boolean =
+    password.length >= 12 &&
+        password.any(Char::isLowerCase) &&
+        password.any(Char::isUpperCase) &&
+        password.any(Char::isDigit) &&
+        password.any { !it.isLetterOrDigit() }
+
+private fun passwordStrength(password: String): Int {
+    if (password.isEmpty()) return 0
+    var score = 0
+    if (password.length >= 8) score++
+    if (password.length >= 12) score++
+    if (password.any(Char::isLowerCase) && password.any(Char::isUpperCase)) score++
+    if (password.any(Char::isDigit)) score++
+    if (password.any { !it.isLetterOrDigit() }) score++
+    return score
+}
+
+@Composable
+private fun PasswordStrengthIndicator(password: String) {
+    val score = passwordStrength(password)
+    val strong = isStrongPassword(password)
+    val label = when {
+        password.isEmpty() -> "Password strength"
+        strong -> "Strong password"
+        score >= 3 -> "Almost strong — meet all requirements"
+        score >= 1 -> "Weak password"
+        else -> "Very weak password"
+    }
+    val barColor = when {
+        password.isEmpty() -> Color(0xFF77798D)
+        strong -> Color(0xFF62D8BD)
+        score >= 3 -> Color(0xFFFFC857)
+        else -> Color(0xFFFF6B7A)
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, color = barColor, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+            Spacer(Modifier.weight(1f))
+            Text("$score/5", color = Color(0xFFB9B8CE), fontSize = 11.sp)
+        }
+        LinearProgressIndicator(
+            progress = { score / 5f },
+            modifier = Modifier.fillMaxWidth().height(5.dp),
+            color = barColor,
+            trackColor = Color(0xFF343547)
+        )
+        Text(
+            "Use 12+ characters with uppercase and lowercase letters, a number, and a symbol.",
+            color = Color(0xFFB9B8CE),
+            fontSize = 11.sp,
+            lineHeight = 16.sp
+        )
     }
 }
 
@@ -803,6 +871,7 @@ private fun AuthScreen(
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
+    var showPassword by rememberSaveable { mutableStateOf(false) }
 
     Box(
         modifier = Modifier
@@ -848,14 +917,15 @@ private fun AuthScreen(
                         OutlinedTextField(name, { name = it.take(60) }, label = { Text("Your name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
                     }
                     OutlinedTextField(email, { email = it.take(200) }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(password, { password = it.take(128) }, label = { Text("Password") }, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    OutlinedTextField(value = password, onValueChange = { password = it.take(128) }, label = { Text("Password") }, visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { showPassword = !showPassword }) { Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (showPassword) "Hide password" else "Show password") } }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                    if (createAccount) PasswordStrengthIndicator(password)
                     if (message.isNotBlank()) NoticeBanner(message, onClearMessage)
                     Button(
                         onClick = {
                             if (createAccount) onSignUp(email.trim(), password, name.trim())
                             else onSignIn(email.trim(), password)
                         },
-                        enabled = configured && !loading && email.contains("@") && password.length >= 8 && (!createAccount || name.trim().length >= 2),
+                        enabled = configured && !loading && email.contains("@") && (if (createAccount) isStrongPassword(password) else password.isNotBlank()) && (!createAccount || name.trim().length >= 2),
                         modifier = Modifier.fillMaxWidth().height(50.dp),
                         shape = RoundedCornerShape(15.dp)
                     ) {

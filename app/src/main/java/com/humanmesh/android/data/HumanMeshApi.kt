@@ -26,6 +26,14 @@ class HumanMeshApi(private val sessions: SessionStore) {
         .build()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
+    private fun requireStrongPassword(password: String) {
+        require(password.length >= 12) { "Password must contain at least 12 characters." }
+        require(password.any(Char::isLowerCase)) { "Password must include a lowercase letter." }
+        require(password.any(Char::isUpperCase)) { "Password must include an uppercase letter." }
+        require(password.any(Char::isDigit)) { "Password must include a number." }
+        require(password.any { !it.isLetterOrDigit() }) { "Password must include a symbol." }
+    }
+
     suspend fun signIn(email: String, password: String): UserSession {
         val result = request(
             "POST",
@@ -37,6 +45,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
     }
 
     suspend fun signUp(email: String, password: String): UserSession? {
+        requireStrongPassword(password)
         val result = request(
             "POST",
             "/auth/v1/signup?redirect_to=humanmesh%3A%2F%2Fauth%2Fverify",
@@ -77,7 +86,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
 
     suspend fun updatePasswordFromRecovery(newPassword: String, recoveryAccessToken: String) =
         withContext(Dispatchers.IO) {
-            require(newPassword.length >= 8) { "Password must contain at least 8 characters." }
+            requireStrongPassword(newPassword)
             require(recoveryAccessToken.isNotBlank()) { "The reset link is invalid or expired. Request a new one." }
             if (!isConfigured) throw IOException("Backend is not configured.")
             val request = Request.Builder()
