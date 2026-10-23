@@ -77,14 +77,17 @@ import java.util.UUID
 
 class MainActivity : ComponentActivity() {
     private var recoveryAccessToken by mutableStateOf<String?>(null)
+    private var emailVerificationCompleted by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         recoveryAccessToken = extractRecoveryAccessToken(intent)
+        emailVerificationCompleted = isEmailVerificationCallback(intent)
         setContent {
             HumanMeshTheme {
                 HumanMeshApp(
                     recoveryAccessToken = recoveryAccessToken,
+                    emailVerificationCompleted = emailVerificationCompleted,
                     onRecoveryFinished = { recoveryAccessToken = null }
                 )
             }
@@ -95,6 +98,12 @@ class MainActivity : ComponentActivity() {
         super.onNewIntent(intent)
         setIntent(intent)
         recoveryAccessToken = extractRecoveryAccessToken(intent)
+        emailVerificationCompleted = isEmailVerificationCallback(intent)
+    }
+
+    private fun isEmailVerificationCallback(intent: Intent?): Boolean {
+        val uri = intent?.data ?: return false
+        return uri.scheme == "humanmesh" && uri.host == "auth" && uri.path == "/verify"
     }
 
     private fun extractRecoveryAccessToken(intent: Intent?): String? {
@@ -123,6 +132,7 @@ private enum class MainTab(val label: String, val symbol: String) {
 @Composable
 private fun HumanMeshApp(
     recoveryAccessToken: String?,
+    emailVerificationCompleted: Boolean,
     onRecoveryFinished: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -148,6 +158,11 @@ private fun HumanMeshApp(
     var goalOutcomes by remember { mutableStateOf(emptyList<GoalOutcome>()) }
     var roomInvitations by remember { mutableStateOf(emptyList<RoomInvitation>()) }
     var notice by remember { mutableStateOf("") }
+    LaunchedEffect(emailVerificationCompleted) {
+        if (emailVerificationCompleted) {
+            notice = "Email verified. Sign in with your email and password to continue."
+        }
+    }
     var busy by remember { mutableStateOf(false) }
     var showGoalDialog by remember { mutableStateOf(false) }
     var editingGoal by remember { mutableStateOf<Goal?>(null) }
