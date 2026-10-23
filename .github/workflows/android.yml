@@ -36,10 +36,28 @@ jobs:
       # Reuse the same runner debug signing key so APKs from later CI runs
       # can update an installed test build instead of failing signature checks.
       - name: Restore persistent debug signing key
+        id: debug_signing_cache
         uses: actions/cache@v4
         with:
           path: ~/.android/debug.keystore
           key: humanmesh-android-debug-signing-key-v1
+      - name: Ensure the persisted signing key exists
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -s "$HOME/.android/debug.keystore" ]; then
+            echo "No cached Android debug keystore was restored; creating the initial persistent CI key."
+            keytool -genkeypair -v \
+              -keystore "$HOME/.android/debug.keystore" \
+              -storepass android \
+              -alias androiddebugkey \
+              -keypass android \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -dname "CN=Android Debug,O=Android,C=US"
+          else
+            echo "Restored existing Android debug keystore."
+          fi
+          keytool -list -v -keystore "$HOME/.android/debug.keystore" -storepass android -alias androiddebugkey | grep -E "SHA256:"
       - name: Verify Kotlin and Android project
         run: gradle --no-daemon :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
       - name: Upload debug APK

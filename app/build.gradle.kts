@@ -23,8 +23,8 @@ android {
         applicationId = "com.humanmesh.android"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.1.1"
         buildConfigField("String", "SUPABASE_URL", "\"$escapedSupabaseUrl\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"$escapedSupabaseAnonKey\"")
     }
@@ -41,6 +41,16 @@ android {
     kotlinOptions {
         jvmTarget = "17"
         freeCompilerArgs += listOf("-Xjvm-default=all")
+    }
+
+    signingConfigs {
+        // Explicitly use the same persisted keystore that CI restores before Gradle runs.
+        getByName("debug") {
+            storeFile = file("${System.getProperty("user.home")}/.android/debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
