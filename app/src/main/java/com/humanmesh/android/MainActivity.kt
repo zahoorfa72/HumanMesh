@@ -1561,8 +1561,23 @@ private fun ProfilePanel(
         verticalArrangement = Arrangement.spacedBy(13.dp)
     ) {
         Text("Your profile", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-        Text("Help collaborators understand what you bring and what you want to build.", color = Color(0xFFB7B7CC), fontSize = 14.sp, lineHeight = 21.sp)
-        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+        Text("Help collaborators understand what you bring and what you want to build.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, lineHeight = 21.sp)
+        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Appearance", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text("Choose how HumanMesh looks. System follows your phone setting.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (mode, label) ->
+                        if (themeMode == mode) {
+                            Button(onClick = { onThemeModeChange(mode) }, modifier = Modifier.weight(1f)) { Text(label) }
+                        } else {
+                            OutlinedButton(onClick = { onThemeModeChange(mode) }, modifier = Modifier.weight(1f)) { Text(label) }
+                        }
+                    }
+                }
+            }
+        }
+        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
                     modifier = Modifier.size(66.dp).background(Brush.linearGradient(listOf(Color(0xFF9B8AFB), Color(0xFF62D8BD))), CircleShape),
