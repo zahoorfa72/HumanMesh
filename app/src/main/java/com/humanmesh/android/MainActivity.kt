@@ -70,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.humanmesh.android.data.Goal
+import com.humanmesh.android.data.DirectMessage
 import com.humanmesh.android.data.GoalOutcome
 import com.humanmesh.android.data.ProjectItem
 import com.humanmesh.android.data.RoomInvitation
@@ -178,6 +179,9 @@ private fun HumanMeshApp(
     var memberProfiles by remember { mutableStateOf(emptyMap<String, UserProfile>()) }
     var directoryProfiles by remember { mutableStateOf(emptyList<UserProfile>()) }
     var selectedRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
+    var selectedDirectRequest by remember { mutableStateOf<MatchRequest?>(null) }
+    var directMessages by remember { mutableStateOf(emptyList<DirectMessage>()) }
+    var directMessageDraft by rememberSaveable { mutableStateOf("") }
     var messages by remember { mutableStateOf(emptyList<RoomMessage>()) }
     var selectedProgressRoom by remember { mutableStateOf<OpportunityRoom?>(null) }
     var progressItems by remember { mutableStateOf(emptyList<ProjectItem>()) }
@@ -424,7 +428,23 @@ private fun HumanMeshApp(
             if (busy) {
                 Text("Working securely…", modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp), color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
             }
-            if (showHelpScreen) {
+            if (selectedDirectRequest != null) {
+                DirectChatPanel(
+                    request = selectedDirectRequest!!,
+                    messages = directMessages,
+                    currentUserId = signedIn?.userId.orEmpty(),
+                    draft = directMessageDraft,
+                    loading = busy,
+                    onDraftChange = { directMessageDraft = it.take(2000) },
+                    onBack = { selectedDirectRequest = null; directMessageDraft = "" },
+                    onRefresh = { if (signedIn != null) runTask { directMessages = api.getDirectMessages(selectedDirectRequest!!.id) } },
+                    onSend = { body -> if (signedIn != null) runTask {
+                        api.sendDirectMessage(selectedDirectRequest!!.id, signedIn.userId, body)
+                        directMessageDraft = ""
+                        directMessages = api.getDirectMessages(selectedDirectRequest!!.id)
+                    } }
+                )
+            } else if (showHelpScreen) {
                 HelpPanel(
                     offlineOnly = demoMode || signedIn == null,
                     loading = busy,
@@ -518,7 +538,13 @@ private fun HumanMeshApp(
                                 memberProfiles = memberProfiles + api.getProfilesByIds(otherIds.distinct())
                             }
                         },
-                        onRespond = { requestId, status ->
+                        onOpenChat = { request ->
+                            if (!demoMode && signedIn != null && request.status == "accepted") runTask {
+                                selectedDirectRequest = request
+                                directMessages = api.getDirectMessages(request.id)
+                            } else notice = "Direct chat is available only for accepted real connections."
+                        },
+onRespond = { requestId, status ->
                             if (signedIn != null && !demoMode) runTask {
                                 api.respondToConnection(requestId, status)
                                 val pair = api.getConnections(signedIn.userId)
@@ -1394,6 +1420,7 @@ private fun ConnectionsPanel(
     goals: List<Goal>,
     memberProfiles: Map<String, UserProfile>,
     onRefresh: () -> Unit,
+    onOpenChat: (MatchRequest) -> Unit,
     onRespond: (String, String) -> Unit
 ) {
     LazyColumn(
@@ -1420,6 +1447,7 @@ private fun ConnectionsPanel(
                     partnerProfile = memberProfiles[item.senderId],
                     goalTitle = goals.firstOrNull { goal -> goal.id == item.goalId }?.title ?: "Goal collaboration",
                     incoming = true,
+                    onOpenChat = onOpenChat,
                     onRespond = onRespond
                 )
             }
@@ -1438,6 +1466,7 @@ private fun ConnectionsPanel(
                     partnerProfile = memberProfiles[item.receiverId],
                     goalTitle = goals.firstOrNull { goal -> goal.id == item.goalId }?.title ?: "Goal collaboration",
                     incoming = false,
+                    onOpenChat = onOpenChat,
                     onRespond = onRespond
                 )
             }
@@ -1452,6 +1481,7 @@ private fun ConnectionRequestCard(
     partnerProfile: UserProfile?,
     goalTitle: String,
     incoming: Boolean,
+    onOpenChat: (MatchRequest) -> Unit,
     onRespond: (String, String) -> Unit
 ) {
     Card(
@@ -1472,11 +1502,69 @@ private fun ConnectionRequestCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("Status: " + request.status, color = Color(0xFF6BE0C1), fontSize = 12.sp)
                 Spacer(Modifier.weight(1f))
+                if (request.status == "accepted") {
+                    TextButton(onClick = { onOpenChat(request) }) { Text("Open chat") }
+                }
                 if (incoming && request.status == "pending") {
                     TextButton(onClick = { onRespond(request.id, "rejected") }) { Text("Decline") }
                     Button(onClick = { onRespond(request.id, "accepted") }, shape = RoundedCornerShape(10.dp)) { Text("Accept") }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun DirectChatPanel(
+    request: MatchRequest,
+    messages: List<DirectMessage>,
+    currentUserId: String,
+    draft: String,
+    loading: Boolean,
+    onDraftChange: (String) -> Unit,
+    onBack: () -> Unit,
+    onRefresh: () -> Unit,
+    onSend: (String) -> Unit
+) {
+    Column(Modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            TextButton(onClick = onBack) { Text("‹ Connections") }
+            Text("Private chat", fontSize = 22.sp, fontWeight = FontWeight.Bold)
+            Spacer(Modifier.weight(1f))
+            TextButton(onClick = onRefresh, enabled = !loading) { Text("Refresh") }
+        }
+        Text("Only you and the accepted connection can read or send messages. Blocking either person disables this chat.", color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp)
+        if (messages.isEmpty()) {
+            Text("No messages yet. Say hello to start the conversation.", color = Color(0xFFB7B7CC), modifier = Modifier.padding(vertical = 18.dp))
+        }
+        LazyColumn(modifier = Modifier.weight(1f, fill = true), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(messages, key = { it.id }) { message ->
+                val mine = message.senderId == currentUserId
+                Surface(
+                    color = if (mine) Color(0xFF34304F) else Color(0xFF191B29),
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(Modifier.padding(12.dp)) {
+                        Text(if (mine) "You" else "Connection", color = Color(0xFF9B8AFB), fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        Text(message.body, fontSize = 14.sp, lineHeight = 20.sp)
+                    }
+                }
+            }
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = draft,
+                onValueChange = onDraftChange,
+                modifier = Modifier.weight(1f),
+                placeholder = { Text("Write a message…") },
+                maxLines = 4
+            )
+            Button(
+                onClick = { onSend(draft.trim()) },
+                enabled = !loading && draft.trim().isNotEmpty(),
+                shape = RoundedCornerShape(12.dp)
+            ) { Text("Send") }
         }
     }
 }
