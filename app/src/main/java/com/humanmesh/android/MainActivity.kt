@@ -6,6 +6,7 @@ import android.net.Uri
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -54,7 +55,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -307,17 +310,12 @@ private fun HumanMeshApp(
             TopAppBar(
                 title = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(38.dp)
-                                .background(
-                                    Brush.linearGradient(listOf(Color(0xFF9B8AFB), Color(0xFF62D8BD))),
-                                    RoundedCornerShape(13.dp)
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Text("H", color = Color(0xFF10111B), fontWeight = FontWeight.Black, fontSize = 21.sp)
-                        }
+                        Image(
+                            painter = painterResource(id = R.drawable.humanmesh_logo),
+                            contentDescription = "HumanMesh logo",
+                            modifier = Modifier.size(38.dp),
+                            contentScale = ContentScale.Fit
+                        )
                         Spacer(Modifier.width(10.dp))
                         Column {
                             Text("HumanMesh", fontWeight = FontWeight.Bold, fontSize = 19.sp)
@@ -819,14 +817,12 @@ private fun AuthScreen(
             verticalArrangement = Arrangement.Center
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .size(58.dp)
-                        .background(Brush.linearGradient(listOf(Color(0xFF9B8AFB), Color(0xFF62D8BD))), RoundedCornerShape(18.dp)),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text("H", color = Color(0xFF10111B), fontSize = 31.sp, fontWeight = FontWeight.Black)
-                }
+                Image(
+                    painter = painterResource(id = R.drawable.humanmesh_logo),
+                    contentDescription = "HumanMesh logo",
+                    modifier = Modifier.size(58.dp),
+                    contentScale = ContentScale.Fit
+                )
                 Spacer(Modifier.width(14.dp))
                 Column {
                     Text("HumanMesh", fontSize = 29.sp, fontWeight = FontWeight.ExtraBold, color = Color.White)
