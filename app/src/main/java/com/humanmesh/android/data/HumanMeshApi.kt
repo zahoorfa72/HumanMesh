@@ -137,6 +137,17 @@ class HumanMeshApi(private val sessions: SessionStore) {
         }
     }
 
+    suspend fun resendSignupVerification(email: String) {
+        val normalizedEmail = email.trim()
+        require(normalizedEmail.contains("@")) { "Enter a valid email address." }
+        request(
+            "POST",
+            "/auth/v1/resend?redirect_to=humanmesh%3A%2F%2Fauth%2Fverify",
+            JSONObject().put("type", "signup").put("email", normalizedEmail),
+            authenticated = false
+        )
+    }
+
     suspend fun requestPasswordReset(email: String) {
         require(email.trim().contains("@")) { "Enter a valid email address." }
         request(
