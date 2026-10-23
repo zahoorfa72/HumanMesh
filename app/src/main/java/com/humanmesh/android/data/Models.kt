@@ -182,3 +182,21 @@ data class RoomInvitation(
         )
     }
 }
+
+data class DirectMessage(
+    val id: String,
+    val matchRequestId: String,
+    val senderId: String,
+    val body: String,
+    val createdAt: String
+) {
+    companion object {
+        fun from(json: JSONObject) = DirectMessage(
+            id = json.optString("id"),
+            matchRequestId = json.optString("match_request_id"),
+            senderId = json.optString("sender_id"),
+            body = json.optString("body"),
+            createdAt = json.optString("created_at")
+        )
+    }
+}

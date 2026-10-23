@@ -493,6 +493,34 @@ class HumanMeshApi(private val sessions: SessionStore) {
         )
     }
 
+    suspend fun getDirectMessages(matchRequestId: String): List<DirectMessage> {
+        requireValidId(matchRequestId)
+        val response = request(
+            "GET",
+            "/rest/v1/direct_messages?select=id,match_request_id,sender_id,body,created_at&match_request_id=eq.$matchRequestId&order=created_at.asc&limit=100"
+        )
+        val rows = JSONArray(response)
+        return (0 until rows.length()).map { DirectMessage.from(rows.getJSONObject(it)) }
+    }
+
+    suspend fun sendDirectMessage(matchRequestId: String, senderId: String, body: String) {
+        requireValidId(matchRequestId)
+        requireValidId(senderId)
+        val cleanBody = body.trim()
+        require(cleanBody.isNotEmpty() && cleanBody.length <= 2000) {
+            "Message must contain 1 to 2,000 characters."
+        }
+        request(
+            "POST",
+            "/rest/v1/direct_messages",
+            JSONObject()
+                .put("match_request_id", matchRequestId)
+                .put("sender_id", senderId)
+                .put("body", cleanBody),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
     suspend fun askAiHelp(question: String): String {
         val prompt = question.trim()
         require(prompt.length in 5..1500) { "Describe your question in 5 to 1,500 characters." }
