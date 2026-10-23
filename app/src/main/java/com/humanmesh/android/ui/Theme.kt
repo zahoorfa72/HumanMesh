@@ -1,11 +1,13 @@
 package com.humanmesh.android.ui
 
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 
-private val HumanMeshColors = darkColorScheme(
+private val DarkColors = darkColorScheme(
     primary = Color(0xFF9B8AFB),
     onPrimary = Color(0xFF17122D),
     secondary = Color(0xFF6BE0C1),
@@ -19,10 +21,29 @@ private val HumanMeshColors = darkColorScheme(
     error = Color(0xFFFF8B9A)
 )
 
+private val LightColors = lightColorScheme(
+    primary = Color(0xFF6550C8),
+    onPrimary = Color.White,
+    secondary = Color(0xFF087F68),
+    onSecondary = Color.White,
+    background = Color(0xFFF7F7FC),
+    onBackground = Color(0xFF191827),
+    surface = Color.White,
+    onSurface = Color(0xFF191827),
+    surfaceVariant = Color(0xFFE9E8F3),
+    onSurfaceVariant = Color(0xFF555469),
+    error = Color(0xFFB3261E)
+)
+
 @Composable
-fun HumanMeshTheme(content: @Composable () -> Unit) {
+fun HumanMeshTheme(mode: String = "system", content: @Composable () -> Unit) {
+    val dark = when (mode) {
+        "dark" -> true
+        "light" -> false
+        else -> isSystemInDarkTheme()
+    }
     MaterialTheme(
-        colorScheme = HumanMeshColors,
+        colorScheme = if (dark) DarkColors else LightColors,
         typography = MaterialTheme.typography,
         content = content
     )

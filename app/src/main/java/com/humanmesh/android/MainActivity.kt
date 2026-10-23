@@ -88,16 +88,23 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     private var recoveryAccessToken by mutableStateOf<String?>(null)
     private var emailVerificationCompleted by mutableStateOf(false)
+    private var themeMode by mutableStateOf("system")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         recoveryAccessToken = extractRecoveryAccessToken(intent)
         emailVerificationCompleted = isEmailVerificationCallback(intent)
+        themeMode = getSharedPreferences("humanmesh_preferences", MODE_PRIVATE).getString("theme_mode", "system") ?: "system"
         setContent {
-            HumanMeshTheme {
+            HumanMeshTheme(mode = themeMode) {
                 HumanMeshApp(
                     recoveryAccessToken = recoveryAccessToken,
                     emailVerificationCompleted = emailVerificationCompleted,
+                    themeMode = themeMode,
+                    onThemeModeChange = { mode ->
+                        themeMode = mode
+                        getSharedPreferences("humanmesh_preferences", MODE_PRIVATE).edit().putString("theme_mode", mode).apply()
+                    },
                     onRecoveryFinished = { recoveryAccessToken = null }
                 )
             }
@@ -119,12 +126,14 @@ class MainActivity : ComponentActivity() {
     private fun extractRecoveryAccessToken(intent: Intent?): String? {
         val uri = intent?.data ?: return null
         if (uri.scheme != "humanmesh" || uri.host != "auth" || uri.path != "/reset") return null
-        val parameters = uri.fragment.orEmpty().split("&").mapNotNull { item ->
-            val pair = item.split("=", limit = 2)
-            if (pair.size == 2) Uri.decode(pair[0]) to Uri.decode(pair[1]) else null
-        }.toMap()
+        val parameters = (listOf(uri.query, uri.fragment).filterNotNull().joinToString("&"))
+            .split("&").mapNotNull { item ->
+                val pair = item.split("=", limit = 2)
+                if (pair.size == 2) Uri.decode(pair[0]) to Uri.decode(pair[1]) else null
+            }.toMap()
         if (parameters["type"] != "recovery") return null
-        return parameters["access_token"]?.takeIf { it.length in 10..8192 }
+        parameters["token_hash"]?.takeIf { it.length in 10..8192 }?.let { return "hash:$it" }
+        return (parameters["access_token"] ?: parameters["accessToken"])?.takeIf { it.length in 10..8192 }
     }
 }
 
@@ -143,6 +152,8 @@ private enum class MainTab(val label: String, val symbol: String) {
 private fun HumanMeshApp(
     recoveryAccessToken: String?,
     emailVerificationCompleted: Boolean,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     onRecoveryFinished: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -601,6 +612,8 @@ private fun HumanMeshApp(
                     )
                     MainTab.Profile -> ProfilePanel(
                         profile = profile,
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
                         email = signedIn?.email ?: "demo@humanmesh.local",
                         demoMode = demoMode,
                         loading = busy,
@@ -1546,6 +1559,8 @@ private fun RoomChatPanel(
 @Composable
 private fun ProfilePanel(
     profile: UserProfile?,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     email: String,
     demoMode: Boolean,
     loading: Boolean,
@@ -1561,8 +1576,23 @@ private fun ProfilePanel(
         verticalArrangement = Arrangement.spacedBy(13.dp)
     ) {
         Text("Your profile", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
-        Text("Help collaborators understand what you bring and what you want to build.", color = Color(0xFFB7B7CC), fontSize = 14.sp, lineHeight = 21.sp)
-        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+        Text("Help collaborators understand what you bring and what you want to build.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 14.sp, lineHeight = 21.sp)
+        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+            Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Appearance", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                Text("Choose how HumanMesh looks. System follows your phone setting.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                    listOf("system" to "System", "light" to "Light", "dark" to "Dark").forEach { (mode, label) ->
+                        if (themeMode == mode) {
+                            Button(onClick = { onThemeModeChange(mode) }, modifier = Modifier.weight(1f)) { Text(label) }
+                        } else {
+                            OutlinedButton(onClick = { onThemeModeChange(mode) }, modifier = Modifier.weight(1f)) { Text(label) }
+                        }
+                    }
+                }
+            }
+        }
+        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
             Column(Modifier.padding(17.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Box(
                     modifier = Modifier.size(66.dp).background(Brush.linearGradient(listOf(Color(0xFF9B8AFB), Color(0xFF62D8BD))), CircleShape),

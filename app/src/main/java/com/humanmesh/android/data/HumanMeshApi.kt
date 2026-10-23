@@ -163,10 +163,27 @@ class HumanMeshApi(private val sessions: SessionStore) {
             validatePassword(newPassword)
             require(recoveryAccessToken.isNotBlank()) { "The reset link is invalid or expired. Request a new one." }
             if (!isConfigured) throw IOException("Backend is not configured.")
+            val accessToken = if (recoveryAccessToken.startsWith("hash:")) {
+                val verifyRequest = Request.Builder()
+                    .url("$baseUrl/auth/v1/verify")
+                    .header("apikey", anonKey)
+                    .header("Authorization", "Bearer $anonKey")
+                    .post(JSONObject()
+                        .put("type", "recovery")
+                        .put("token_hash", recoveryAccessToken.removePrefix("hash:"))
+                        .toString().toRequestBody(jsonType))
+                    .build()
+                http.newCall(verifyRequest).execute().use { response ->
+                    val body = response.body?.string().orEmpty()
+                    if (!response.isSuccessful) throw IOException(userMessage(body, response.code))
+                    JSONObject(body).optString("access_token").takeIf { it.isNotBlank() }
+                        ?: throw IOException("The reset link is invalid or expired. Request a new one.")
+                }
+            } else recoveryAccessToken
             val request = Request.Builder()
                 .url("$baseUrl/auth/v1/user")
                 .header("apikey", anonKey)
-                .header("Authorization", "Bearer $recoveryAccessToken")
+                .header("Authorization", "Bearer $accessToken")
                 .put(JSONObject().put("password", newPassword).toString().toRequestBody(jsonType))
                 .build()
             http.newCall(request).execute().use { response ->
