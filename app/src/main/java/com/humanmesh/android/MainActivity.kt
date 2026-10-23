@@ -852,7 +852,7 @@ private fun passwordStrength(password: String): Int {
 @Composable
 private fun PasswordStrengthIndicator(password: String) {
     val score = passwordStrength(password)
-    val strong = isStrongPassword(password)
+    val strong = password.length >= 8 && password.any(Char::isLetter) && password.any(Char::isDigit)
     val label = when {
         password.isEmpty() -> "Password strength"
         strong -> "Strong password"
@@ -998,7 +998,7 @@ private fun AuthScreen(
                                 if (createAccount) onSignUp(email.trim(), password, name.trim())
                                 else onSignIn(email.trim(), password)
                             },
-                            enabled = configured && !loading && email.contains("@") && (if (createAccount) isStrongPassword(password) else password.isNotBlank()) && (!createAccount || name.trim().length >= 2),
+                            enabled = configured && !loading && email.contains("@") && (if (createAccount) password.length >= 6 else password.isNotBlank()) && (!createAccount || name.trim().length >= 2),
                             modifier = Modifier.fillMaxWidth().height(50.dp),
                             shape = RoundedCornerShape(15.dp)
                         ) {
