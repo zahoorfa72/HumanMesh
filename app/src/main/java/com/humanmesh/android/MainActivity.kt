@@ -161,11 +161,10 @@ private fun HumanMeshApp(
     val api = remember { HumanMeshApi(sessions) }
     val scope = rememberCoroutineScope()
 
-    val restoredSession = remember { if (api.isConfigured) sessions.read() else null }
-    var current by remember { mutableStateOf(restoredSession?.takeIf { api.hasVerifiedEmailMfa(it.accessToken) }) }
-    LaunchedEffect(restoredSession) {
-        if (restoredSession != null && current == null) sessions.clear()
-    }
+    // Keep a saved login across app restarts. An access token's optional MFA
+    // claim is not a session-expiry signal; the API layer refreshes expired tokens.
+    val restoredSession = remember { sessions.read() }
+    var current by remember { mutableStateOf(restoredSession) }
     var pendingEmailMfaSession by remember { mutableStateOf<UserSession?>(null) }
     var pendingMfaName by remember { mutableStateOf("") }
     var demoMode by rememberSaveable { mutableStateOf(false) }
@@ -196,10 +195,6 @@ private fun HumanMeshApp(
     var deleteGoalTarget by remember { mutableStateOf<Goal?>(null) }
     var showRoomDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
-
-    LaunchedEffect(api.isConfigured) {
-        if (!api.isConfigured) sessions.clear()
-    }
 
     fun runTask(task: suspend () -> Unit) {
         scope.launch {
