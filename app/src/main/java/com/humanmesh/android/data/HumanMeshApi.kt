@@ -10,6 +10,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
+import java.util.Base64
 import java.util.concurrent.TimeUnit
 
 class HumanMeshApi(private val sessions: SessionStore) {
@@ -17,6 +18,18 @@ class HumanMeshApi(private val sessions: SessionStore) {
     private val anonKey = BuildConfig.SUPABASE_ANON_KEY.trim()
     val isConfigured: Boolean
         get() = baseUrl.startsWith("https://") && anonKey.isNotBlank()
+
+    fun hasVerifiedEmailMfa(accessToken: String): Boolean = runCatching {
+        val tokenParts = accessToken.split(".")
+        if (tokenParts.size < 2) {
+            false
+        } else {
+            var payload = tokenParts[1].replace('-', '+').replace('_', '/')
+            payload += "=".repeat((4 - payload.length % 4) % 4)
+            val claims = JSONObject(String(Base64.getDecoder().decode(payload), Charsets.UTF_8))
+            claims.optBoolean("humanmesh_email_mfa_verified", false)
+        }
+    }.getOrDefault(false)
 
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -41,7 +54,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
             JSONObject().put("email", email.trim()).put("password", password),
             authenticated = false
         )
-        return saveAuthResult(JSONObject(result), email)
+        return saveAuthResult(JSONObject(result), email, persistSession = false)
     }
 
     suspend fun signUp(email: String, password: String): UserSession? {
@@ -54,10 +67,14 @@ class HumanMeshApi(private val sessions: SessionStore) {
         )
         val json = JSONObject(result)
         if (json.optString("access_token").isBlank()) return null
-        return saveAuthResult(json, email)
+        return saveAuthResult(json, email, persistSession = false)
     }
 
-    private fun saveAuthResult(json: JSONObject, fallbackEmail: String): UserSession {
+    private fun saveAuthResult(
+        json: JSONObject,
+        fallbackEmail: String,
+        persistSession: Boolean = true
+    ): UserSession {
         val user = json.optJSONObject("user") ?: json
         val userId = user.optString("id").ifBlank { user.optString("sub") }
         val access = json.optString("access_token")
@@ -70,8 +87,53 @@ class HumanMeshApi(private val sessions: SessionStore) {
             accessToken = access,
             refreshToken = json.optString("refresh_token")
         )
-        sessions.save(session)
+        if (persistSession) sessions.save(session)
         return session
+    }
+
+    suspend fun sendEmailMfaCode(session: UserSession) = withContext(Dispatchers.IO) {
+        postEmailMfaAction(session, JSONObject().put("action", "send"))
+    }
+
+    suspend fun verifyEmailMfaCode(session: UserSession, code: String) = withContext(Dispatchers.IO) {
+        require(code.matches(Regex("^[0-9]{6}$"))) { "Enter the six-digit code from your email." }
+        postEmailMfaAction(session, JSONObject().put("action", "verify").put("code", code))
+    }
+
+    suspend fun completeEmailMfa(session: UserSession): UserSession = withContext(Dispatchers.IO) {
+        require(session.refreshToken.isNotBlank()) { "Sign-in session expired. Please sign in again." }
+        val request = Request.Builder()
+            .url("$baseUrl/auth/v1/token?grant_type=refresh_token")
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer $anonKey")
+            .post(JSONObject().put("refresh_token", session.refreshToken).toString().toRequestBody(jsonType))
+            .build()
+        val result = http.newCall(request).execute().use { response ->
+            val responseText = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException(userMessage(responseText, response.code))
+            JSONObject(responseText)
+        }
+        val verified = saveAuthResult(result, session.email, persistSession = true)
+        if (!hasVerifiedEmailMfa(verified.accessToken)) {
+            sessions.clear()
+            throw IOException("Email two-step verification is not enabled on the Supabase backend yet. Complete the HumanMesh email MFA setup first.")
+        }
+        verified
+    }
+
+    private fun postEmailMfaAction(session: UserSession, body: JSONObject) {
+        if (!isConfigured) throw IOException("Backend is not configured.")
+        val request = Request.Builder()
+            .url("$baseUrl/functions/v1/email-mfa")
+            .header("apikey", anonKey)
+            .header("Authorization", "Bearer " + session.accessToken)
+            .header("Content-Type", "application/json")
+            .post(body.toString().toRequestBody(jsonType))
+            .build()
+        http.newCall(request).execute().use { response ->
+            val responseText = response.body?.string().orEmpty()
+            if (!response.isSuccessful) throw IOException(userMessage(responseText, response.code))
+        }
     }
 
     suspend fun requestPasswordReset(email: String) {

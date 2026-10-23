@@ -40,3 +40,8 @@ Security is layered, not absolute. Before inviting real users, perform:
 - release signing, dependency review, Play Integrity strategy as appropriate, accessibility testing, and OWASP MASVS-aligned testing.
 
 This project must not be marketed as "fully secure" until it has undergone appropriate testing and review. GitHub Actions provides a build/test signal, not a security certification.
+
+
+## Email two-step verification
+
+Setup instructions and required Supabase Dashboard configuration are in [supabase/EMAIL_MFA_SETUP.md](supabase/EMAIL_MFA_SETUP.md). Do not enable database enforcement until the Edge Function and Custom Access Token Hook are deployed and tested.
