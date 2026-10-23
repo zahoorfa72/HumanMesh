@@ -261,17 +261,26 @@ class HumanMeshApi(private val sessions: SessionStore) {
         requireValidId(receiverId)
         requireValidId(goalId)
         requireValidId(senderId)
-        request(
-            "POST",
-            "/rest/v1/match_requests",
-            JSONObject()
-                .put("sender_id", senderId)
-                .put("receiver_id", receiverId)
-                .put("goal_id", goalId)
-                .put("message", "I'd like to explore collaborating on this goal.")
-                .put("status", "pending"),
-            extraHeaders = mapOf("Prefer" to "return=minimal")
-        )
+        try {
+            request(
+                "POST",
+                "/rest/v1/match_requests",
+                JSONObject()
+                    .put("sender_id", senderId)
+                    .put("receiver_id", receiverId)
+                    .put("goal_id", goalId)
+                    .put("message", "I'd like to explore collaborating on this goal.")
+                    .put("status", "pending"),
+                extraHeaders = mapOf("Prefer" to "return=minimal")
+            )
+        } catch (error: IOException) {
+            // The database's unique constraint prevents duplicate requests. Turn that
+            // expected retry/tap-again case into a clear message instead of exposing SQL.
+            if (error.message.orEmpty().contains("match_requests_sender_id_receiver_id_goal_id_key")) {
+                throw IOException("You have already sent a request for this goal.")
+            }
+            throw error
+        }
     }
 
     suspend fun getConnections(userId: String): Pair<List<MatchRequest>, List<MatchRequest>> {
