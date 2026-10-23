@@ -33,6 +33,13 @@ jobs:
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
+      # Reuse the same runner debug signing key so APKs from later CI runs
+      # can update an installed test build instead of failing signature checks.
+      - name: Restore persistent debug signing key
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: humanmesh-android-debug-signing-key-v1
       - name: Verify Kotlin and Android project
         run: gradle --no-daemon :app:assembleDebug :app:lintDebug :app:testDebugUnitTest
       - name: Upload debug APK
