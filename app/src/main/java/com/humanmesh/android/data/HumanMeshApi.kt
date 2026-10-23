@@ -493,6 +493,41 @@ class HumanMeshApi(private val sessions: SessionStore) {
         )
     }
 
+    suspend fun askAiHelp(question: String): String {
+        val prompt = question.trim()
+        require(prompt.length in 5..1500) { "Describe your question in 5 to 1,500 characters." }
+        val response = request(
+            "POST",
+            "/functions/v1/humanmesh-help",
+            JSONObject().put("question", prompt),
+            authenticated = true
+        )
+        val answer = JSONObject(response).optString("answer").trim()
+        if (answer.isBlank()) throw IOException("The AI helper returned an empty reply. Please try again.")
+        return answer.take(4000)
+    }
+
+    suspend fun createSupportTicket(userId: String, category: String, title: String, description: String) {
+        requireValidId(userId)
+        require(category in setOf("bug", "account", "feature_request", "safety", "other")) {
+            "Choose a valid support category."
+        }
+        val cleanTitle = title.trim()
+        val cleanDescription = description.trim()
+        require(cleanTitle.length in 5..120) { "Enter a short issue title (5–120 characters)." }
+        require(cleanDescription.length in 10..3000) { "Describe the issue in at least 10 characters." }
+        request(
+            "POST",
+            "/rest/v1/support_tickets",
+            JSONObject()
+                .put("user_id", userId)
+                .put("category", category)
+                .put("title", cleanTitle)
+                .put("description", cleanDescription),
+            extraHeaders = mapOf("Prefer" to "return=minimal")
+        )
+    }
+
     suspend fun deleteAccount() {
         request(
             "POST",

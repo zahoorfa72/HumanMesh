@@ -195,6 +195,8 @@ private fun HumanMeshApp(
     var deleteGoalTarget by remember { mutableStateOf<Goal?>(null) }
     var showRoomDialog by remember { mutableStateOf(false) }
     var showDeleteConfirm by remember { mutableStateOf(false) }
+    var showHelpScreen by rememberSaveable { mutableStateOf(false) }
+    var aiHelpAnswer by remember { mutableStateOf("") }
 
     fun runTask(task: suspend () -> Unit) {
         scope.launch {
@@ -379,22 +381,32 @@ private fun HumanMeshApp(
                         }
                     }
                 },
+                actions = {
+                    IconButton(onClick = {
+                        showHelpScreen = !showHelpScreen
+                        notice = ""
+                    }) {
+                        Text(if (showHelpScreen) "‹" else "?", fontSize = 24.sp, fontWeight = FontWeight.Bold)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF10111B))
             )
         },
         bottomBar = {
-            NavigationBar(containerColor = Color(0xFF191B29)) {
-                MainTab.entries.forEach { tab ->
-                    NavigationBarItem(
-                        selected = activeTab == tab,
-                        onClick = {
-                            selectedRoom = null
-                            activeTab = tab
-                            notice = ""
-                        },
-                        icon = { Text(tab.symbol, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
-                        label = { Text(tab.label, fontSize = 10.sp, maxLines = 1) }
-                    )
+            if (!showHelpScreen) {
+                NavigationBar(containerColor = Color(0xFF191B29)) {
+                    MainTab.entries.forEach { tab ->
+                        NavigationBarItem(
+                            selected = activeTab == tab,
+                            onClick = {
+                                selectedRoom = null
+                                activeTab = tab
+                                notice = ""
+                            },
+                            icon = { Text(tab.symbol, fontSize = 18.sp, fontWeight = FontWeight.Bold) },
+                            label = { Text(tab.label, fontSize = 10.sp, maxLines = 1) }
+                        )
+                    }
                 }
             }
         }
@@ -411,7 +423,31 @@ private fun HumanMeshApp(
             if (busy) {
                 Text("Working securely…", modifier = Modifier.padding(horizontal = 20.dp, vertical = 5.dp), color = MaterialTheme.colorScheme.secondary, fontSize = 12.sp)
             }
-            if (selectedRoom != null && activeTab == MainTab.Rooms) {
+            if (showHelpScreen) {
+                HelpPanel(
+                    demoMode = demoMode,
+                    loading = busy,
+                    answer = aiHelpAnswer,
+                    onAsk = { question ->
+                        aiHelpAnswer = ""
+                        if (demoMode) {
+                            aiHelpAnswer = offlineHelpAnswer(question)
+                        } else if (signedIn != null) {
+                            runTask { aiHelpAnswer = api.askAiHelp(question) }
+                        } else {
+                            notice = "Sign in to use HumanMesh AI Help."
+                        }
+                    },
+                    onReport = { category, title, description ->
+                        if (demoMode || signedIn == null) {
+                            notice = "Sign in with a real account to submit a support report."
+                        } else runTask {
+                            api.createSupportTicket(signedIn.userId, category, title, description)
+                            notice = "Support report submitted. Thank you for helping improve HumanMesh."
+                        }
+                    }
+                )
+            } else if (selectedRoom != null && activeTab == MainTab.Rooms) {
                 RoomChatPanel(
                     room = selectedRoom!!,
                     messages = messages,
@@ -1548,6 +1584,172 @@ private fun RoomChatPanel(
                 shape = RoundedCornerShape(14.dp)
             ) { Text("Send") }
         }
+    }
+}
+
+private fun offlineHelpAnswer(question: String): String {
+    val query = question.lowercase()
+    val guidance = when {
+        "login" in query || "sign in" in query || "password" in query ->
+            "Check that your email is correct and your internet connection is working. Use Forgot password if needed. Never share your password or verification code. Demo mode cannot verify a real account."
+        "room" in query || "message" in query ->
+            "Open Rooms and enter a public room to participate. Some content is only available to room members. Demo mode shows sample conversations only; messages are not sent to real people."
+        "goal" in query || "connect" in query || "request" in query ->
+            "Explore public goals, open one that interests you, and send a connection request. The other person must accept before a connection is established. Demo mode does not contact real users."
+        "block" in query || "report" in query || "unsafe" in query || "abuse" in query ->
+            "Open Safety to block or report a member. For a specific member, use the report-member control there. Do not include passwords, one-time codes, or private information in a report."
+        "theme" in query || "dark" in query || "light" in query ->
+            "Open Profile and choose System, Light, or Dark appearance. System follows your phone's appearance setting; Light and Dark can be selected manually."
+        else ->
+            "This demo contains sample data only and cannot inspect your account or contact the support team. For account-specific AI help, sign in with a configured backend. To report an app problem, describe what happened, what you expected, and the steps to reproduce it in Help & AI."
+    }
+    return "Demo mode — this is local guidance, not an AI-generated answer.\n\n" + guidance
+}
+
+@Composable
+private fun HelpPanel(
+    demoMode: Boolean,
+    loading: Boolean,
+    answer: String,
+    onAsk: (String) -> Unit,
+    onReport: (String, String, String) -> Unit
+) {
+    var question by rememberSaveable { mutableStateOf("") }
+    var category by rememberSaveable { mutableStateOf("bug") }
+    var categoryMenuOpen by remember { mutableStateOf(false) }
+    var title by rememberSaveable { mutableStateOf("") }
+    var description by rememberSaveable { mutableStateOf("") }
+
+    val categoryOptions = listOf(
+        "bug" to "Bug or crash",
+        "account" to "Login or account",
+        "feature_request" to "Feature suggestion",
+        "safety" to "Safety concern",
+        "other" to "Other"
+    )
+    val categoryLabel = categoryOptions.firstOrNull { it.first == category }?.second ?: "Other"
+
+    Column(
+        Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp),
+        verticalArrangement = Arrangement.spacedBy(13.dp)
+    ) {
+        Text("Help & AI", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold)
+        Text(
+            "Get guidance, understand app features, or send a problem report to the HumanMesh team.",
+            color = Color(0xFFB7B7CC), fontSize = 14.sp, lineHeight = 21.sp
+        )
+
+        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+            Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Text("Ask HumanMesh AI", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Ask how to use the app or describe a problem. The assistant may ask follow-up questions when details are missing.",
+                    color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp
+                )
+                OutlinedTextField(
+                    value = question,
+                    onValueChange = { question = it.take(1500) },
+                    label = { Text("What do you need help with?") },
+                    placeholder = { Text("Tell us what happened and what you expected…") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 5
+                )
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = { question = "I cannot sign in to my HumanMesh account. How should I troubleshoot it?" },
+                        enabled = !loading,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("Login help", maxLines = 1) }
+                    OutlinedButton(
+                        onClick = { question = "How do I report an unsafe member or block someone?" },
+                        enabled = !loading,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("Safety help", maxLines = 1) }
+                }
+                Button(
+                    onClick = { onAsk(question.trim()) },
+                    enabled = question.trim().length >= 5 && !loading,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp)
+                ) { Text(if (loading) "Getting guidance…" else "Ask AI") }
+
+                if (answer.isNotBlank()) {
+                    Surface(
+                        color = Color(0xFF23263A),
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(answer, modifier = Modifier.padding(14.dp), fontSize = 14.sp, lineHeight = 21.sp)
+                    }
+                }
+                Text(
+                    if (demoMode) "Demo mode provides limited local guidance. Sign in to use the online AI assistant."
+                    else "AI can make mistakes. Never share passwords, verification codes, payment details, or private messages.",
+                    color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp
+                )
+            }
+        }
+
+        Card(shape = RoundedCornerShape(22.dp), colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))) {
+            Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
+                Text("Report an app issue", fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text(
+                    "Reports are sent privately to the support database for review. Please include the steps that caused the problem. For a specific member, use Safety → report member.",
+                    color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp
+                )
+                Box {
+                    OutlinedButton(
+                        onClick = { categoryMenuOpen = true },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp)
+                    ) { Text("Category: " + categoryLabel) }
+                    DropdownMenu(expanded = categoryMenuOpen, onDismissRequest = { categoryMenuOpen = false }) {
+                        categoryOptions.forEach { option ->
+                            DropdownMenuItem(
+                                text = { Text(option.second) },
+                                onClick = {
+                                    category = option.first
+                                    categoryMenuOpen = false
+                                }
+                            )
+                        }
+                    }
+                }
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it.take(120) },
+                    label = { Text("Short title") },
+                    placeholder = { Text("e.g. App closes when opening a room") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it.take(3000) },
+                    label = { Text("What happened?") },
+                    placeholder = { Text("Steps to reproduce, expected result, and actual result…") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3,
+                    maxLines = 6
+                )
+                Button(
+                    onClick = { onReport(category, title.trim(), description.trim()) },
+                    enabled = !demoMode && !loading && title.trim().length >= 5 && description.trim().length >= 10,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(13.dp)
+                ) { Text("Submit support report") }
+                if (demoMode) {
+                    Text(
+                        "Sign in with a real account to submit a report. Sample reports are never uploaded.",
+                        color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp
+                    )
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
     }
 }
 
