@@ -273,7 +273,7 @@ private fun HumanMeshApp(
         )
         return
     }
-    if (current == null && !demoMode) {
+    if (current == null && !demoMode && !showHelpScreen) {
         AuthScreen(
             configured = api.isConfigured,
             loading = busy,
@@ -290,6 +290,7 @@ private fun HumanMeshApp(
                 directoryProfiles = demoProfiles().values.toList()
                 notice = "Demo mode uses sample content only. No real accounts or other people are connected."
             },
+            onHelp = { showHelpScreen = true; notice = "" },
             onSignIn = { email, password ->
                 runTask {
                     val session = api.signIn(email, password)
@@ -425,12 +426,12 @@ private fun HumanMeshApp(
             }
             if (showHelpScreen) {
                 HelpPanel(
-                    demoMode = demoMode,
+                    offlineOnly = demoMode || signedIn == null,
                     loading = busy,
                     answer = aiHelpAnswer,
                     onAsk = { question ->
                         aiHelpAnswer = ""
-                        if (demoMode) {
+                        if (demoMode || signedIn == null) {
                             aiHelpAnswer = offlineHelpAnswer(question)
                         } else if (signedIn != null) {
                             runTask { aiHelpAnswer = api.askAiHelp(question) }
@@ -946,6 +947,7 @@ private fun AuthScreen(
     message: String,
     onClearMessage: () -> Unit,
     onDemo: () -> Unit,
+    onHelp: () -> Unit,
     onSignIn: (String, String) -> Unit,
     onSignUp: (String, String, String) -> Unit,
     onResendVerification: (String) -> Unit,
@@ -1075,6 +1077,9 @@ private fun AuthScreen(
                 Spacer(Modifier.height(15.dp))
                 OutlinedButton(onClick = onDemo, modifier = Modifier.fillMaxWidth().height(49.dp), shape = RoundedCornerShape(15.dp)) {
                     Text("Explore local demo")
+                }
+                TextButton(onClick = onHelp, modifier = Modifier.fillMaxWidth()) {
+                    Text("Need help? Troubleshoot an issue")
                 }
                 Spacer(Modifier.height(10.dp))
                 Text("Your information should be shared only with people you choose. The demo uses sample data only.", color = Color(0xFF8E90A7), fontSize = 12.sp, lineHeight = 18.sp)
@@ -1608,7 +1613,7 @@ private fun offlineHelpAnswer(question: String): String {
 
 @Composable
 private fun HelpPanel(
-    demoMode: Boolean,
+    offlineOnly: Boolean,
     loading: Boolean,
     answer: String,
     onAsk: (String) -> Unit,
@@ -1656,7 +1661,7 @@ private fun HelpPanel(
                     maxLines = 5
                 )
                 Text(
-                    if (demoMode) "Demo mode uses local guidance only; no question is sent to the AI provider."
+                    if (offlineOnly) "Offline guidance only: no question is sent to the AI provider. Sign in for online AI help."
                     else "Your question is sent to HumanMesh's AI provider to generate a reply. Avoid personal or sensitive details.",
                     color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp
                 )
@@ -1741,13 +1746,13 @@ private fun HelpPanel(
                 )
                 Button(
                     onClick = { onReport(category, title.trim(), description.trim()) },
-                    enabled = !demoMode && !loading && title.trim().length >= 5 && description.trim().length >= 10,
+                    enabled = !offlineOnly && !loading && title.trim().length >= 5 && description.trim().length >= 10,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(13.dp)
                 ) { Text("Submit support report") }
-                if (demoMode) {
+                if (offlineOnly) {
                     Text(
-                        "Sign in with a real account to submit a report. Sample reports are never uploaded.",
+                        "Sign in with a real account to submit a report. Offline guidance never sends a report.",
                         color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp
                     )
                 }
