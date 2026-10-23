@@ -1655,6 +1655,11 @@ private fun HelpPanel(
                     minLines = 3,
                     maxLines = 5
                 )
+                Text(
+                    if (demoMode) "Demo mode uses local guidance only; no question is sent to the AI provider."
+                    else "Your question is sent to HumanMesh's AI provider to generate a reply. Avoid personal or sensitive details.",
+                    color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = { question = "I cannot sign in to my HumanMesh account. How should I troubleshoot it?" },
@@ -1686,8 +1691,7 @@ private fun HelpPanel(
                     }
                 }
                 Text(
-                    if (demoMode) "Demo mode provides limited local guidance. Sign in to use the online AI assistant."
-                    else "AI can make mistakes. Never share passwords, verification codes, payment details, or private messages.",
+                    "AI can make mistakes. Never share passwords, verification codes, payment details, or private messages.",
                     color = Color(0xFFB7B7CC), fontSize = 12.sp, lineHeight = 18.sp
                 )
             }
@@ -1697,7 +1701,7 @@ private fun HelpPanel(
             Column(Modifier.fillMaxWidth().padding(17.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                 Text("Report an app issue", fontSize = 19.sp, fontWeight = FontWeight.Bold)
                 Text(
-                    "Reports are sent privately to the support database for review. Please include the steps that caused the problem. For a specific member, use Safety → report member.",
+                    "Reports are saved privately for review. Include the steps that caused the problem, but never add passwords, verification codes, payment details, or private conversations. For a specific member, use Safety → report member.",
                     color = Color(0xFFB7B7CC), fontSize = 13.sp, lineHeight = 19.sp
                 )
                 Box {

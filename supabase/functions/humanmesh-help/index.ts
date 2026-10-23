@@ -91,9 +91,10 @@ Deno.serve(async (req: Request) => {
           { role: "system", content: [{ type: "input_text", text: systemPrompt }] },
           { role: "user", content: [{ type: "input_text", text: question }] }
         ],
+        store: false,
         max_output_tokens: 600
       }),
-      signal: AbortSignal.timeout(25000)
+      signal: AbortSignal.timeout(16000)
     });
     if (!openAiResponse.ok) {
       console.error("AI Help provider returned HTTP", openAiResponse.status);
