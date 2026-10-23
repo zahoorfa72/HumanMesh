@@ -88,16 +88,23 @@ import java.util.UUID
 class MainActivity : ComponentActivity() {
     private var recoveryAccessToken by mutableStateOf<String?>(null)
     private var emailVerificationCompleted by mutableStateOf(false)
+    private var themeMode by mutableStateOf("system")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         recoveryAccessToken = extractRecoveryAccessToken(intent)
         emailVerificationCompleted = isEmailVerificationCallback(intent)
+        themeMode = getSharedPreferences("humanmesh_preferences", MODE_PRIVATE).getString("theme_mode", "system") ?: "system"
         setContent {
-            HumanMeshTheme {
+            HumanMeshTheme(mode = themeMode) {
                 HumanMeshApp(
                     recoveryAccessToken = recoveryAccessToken,
                     emailVerificationCompleted = emailVerificationCompleted,
+                    themeMode = themeMode,
+                    onThemeModeChange = { mode ->
+                        themeMode = mode
+                        getSharedPreferences("humanmesh_preferences", MODE_PRIVATE).edit().putString("theme_mode", mode).apply()
+                    },
                     onRecoveryFinished = { recoveryAccessToken = null }
                 )
             }
@@ -119,12 +126,14 @@ class MainActivity : ComponentActivity() {
     private fun extractRecoveryAccessToken(intent: Intent?): String? {
         val uri = intent?.data ?: return null
         if (uri.scheme != "humanmesh" || uri.host != "auth" || uri.path != "/reset") return null
-        val parameters = uri.fragment.orEmpty().split("&").mapNotNull { item ->
-            val pair = item.split("=", limit = 2)
-            if (pair.size == 2) Uri.decode(pair[0]) to Uri.decode(pair[1]) else null
-        }.toMap()
+        val parameters = (listOf(uri.query, uri.fragment).filterNotNull().joinToString("&"))
+            .split("&").mapNotNull { item ->
+                val pair = item.split("=", limit = 2)
+                if (pair.size == 2) Uri.decode(pair[0]) to Uri.decode(pair[1]) else null
+            }.toMap()
         if (parameters["type"] != "recovery") return null
-        return parameters["access_token"]?.takeIf { it.length in 10..8192 }
+        parameters["token_hash"]?.takeIf { it.length in 10..8192 }?.let { return "hash:$it" }
+        return (parameters["access_token"] ?: parameters["accessToken"])?.takeIf { it.length in 10..8192 }
     }
 }
 
@@ -143,6 +152,8 @@ private enum class MainTab(val label: String, val symbol: String) {
 private fun HumanMeshApp(
     recoveryAccessToken: String?,
     emailVerificationCompleted: Boolean,
+    themeMode: String,
+    onThemeModeChange: (String) -> Unit,
     onRecoveryFinished: () -> Unit
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -601,6 +612,8 @@ private fun HumanMeshApp(
                     )
                     MainTab.Profile -> ProfilePanel(
                         profile = profile,
+                        themeMode = themeMode,
+                        onThemeModeChange = onThemeModeChange,
                         email = signedIn?.email ?: "demo@humanmesh.local",
                         demoMode = demoMode,
                         loading = busy,
