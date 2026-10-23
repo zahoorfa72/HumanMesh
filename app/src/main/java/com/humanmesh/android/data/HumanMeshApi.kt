@@ -39,12 +39,8 @@ class HumanMeshApi(private val sessions: SessionStore) {
         .build()
     private val jsonType = "application/json; charset=utf-8".toMediaType()
 
-    private fun requireStrongPassword(password: String) {
-        require(password.length >= 12) { "Password must contain at least 12 characters." }
-        require(password.any(Char::isLowerCase)) { "Password must include a lowercase letter." }
-        require(password.any(Char::isUpperCase)) { "Password must include an uppercase letter." }
-        require(password.any(Char::isDigit)) { "Password must include a number." }
-        require(password.any { !it.isLetterOrDigit() }) { "Password must include a symbol." }
+    private fun validatePassword(password: String) {
+        require(password.length >= 6) { "Password must contain at least 6 characters." }
     }
 
     suspend fun signIn(email: String, password: String): UserSession {
@@ -54,11 +50,11 @@ class HumanMeshApi(private val sessions: SessionStore) {
             JSONObject().put("email", email.trim()).put("password", password),
             authenticated = false
         )
-        return saveAuthResult(JSONObject(result), email, persistSession = false)
+        return saveAuthResult(JSONObject(result), email, persistSession = true)
     }
 
     suspend fun signUp(email: String, password: String): UserSession? {
-        requireStrongPassword(password)
+        validatePassword(password)
         val result = request(
             "POST",
             "/auth/v1/signup?redirect_to=humanmesh%3A%2F%2Fauth%2Fverify",
@@ -66,8 +62,13 @@ class HumanMeshApi(private val sessions: SessionStore) {
             authenticated = false
         )
         val json = JSONObject(result)
+        val user = json.optJSONObject("user")
+        val identities = user?.optJSONArray("identities")
+        if (user != null && identities != null && identities.length() == 0) {
+            throw IOException("This email already has a HumanMesh account. Choose Sign in or Forgot password.")
+        }
         if (json.optString("access_token").isBlank()) return null
-        return saveAuthResult(json, email, persistSession = false)
+        return saveAuthResult(json, email, persistSession = true)
     }
 
     private fun saveAuthResult(
@@ -136,6 +137,17 @@ class HumanMeshApi(private val sessions: SessionStore) {
         }
     }
 
+    suspend fun resendSignupVerification(email: String) {
+        val normalizedEmail = email.trim()
+        require(normalizedEmail.contains("@")) { "Enter a valid email address." }
+        request(
+            "POST",
+            "/auth/v1/resend?redirect_to=humanmesh%3A%2F%2Fauth%2Fverify",
+            JSONObject().put("type", "signup").put("email", normalizedEmail),
+            authenticated = false
+        )
+    }
+
     suspend fun requestPasswordReset(email: String) {
         require(email.trim().contains("@")) { "Enter a valid email address." }
         request(
@@ -148,7 +160,7 @@ class HumanMeshApi(private val sessions: SessionStore) {
 
     suspend fun updatePasswordFromRecovery(newPassword: String, recoveryAccessToken: String) =
         withContext(Dispatchers.IO) {
-            requireStrongPassword(newPassword)
+            validatePassword(newPassword)
             require(recoveryAccessToken.isNotBlank()) { "The reset link is invalid or expired. Request a new one." }
             if (!isConfigured) throw IOException("Backend is not configured.")
             val request = Request.Builder()
