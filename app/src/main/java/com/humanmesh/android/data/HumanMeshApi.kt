@@ -21,11 +21,14 @@ class HumanMeshApi(private val sessions: SessionStore) {
 
     fun hasVerifiedEmailMfa(accessToken: String): Boolean = runCatching {
         val tokenParts = accessToken.split(".")
-        if (tokenParts.size < 2) return false
-        var payload = tokenParts[1].replace('-', '+').replace('_', '/')
-        payload += "=".repeat((4 - payload.length % 4) % 4)
-        val claims = JSONObject(String(Base64.getDecoder().decode(payload), Charsets.UTF_8))
-        claims.optBoolean("humanmesh_email_mfa_verified", false)
+        if (tokenParts.size < 2) {
+            false
+        } else {
+            var payload = tokenParts[1].replace('-', '+').replace('_', '/')
+            payload += "=".repeat((4 - payload.length % 4) % 4)
+            val claims = JSONObject(String(Base64.getDecoder().decode(payload), Charsets.UTF_8))
+            claims.optBoolean("humanmesh_email_mfa_verified", false)
+        }
     }.getOrDefault(false)
 
     private val http = OkHttpClient.Builder()
