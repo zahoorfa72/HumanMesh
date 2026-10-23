@@ -150,7 +150,13 @@ private fun HumanMeshApp(
     val api = remember { HumanMeshApi(sessions) }
     val scope = rememberCoroutineScope()
 
-    var current by remember { mutableStateOf(if (api.isConfigured) sessions.read() else null) }
+    val restoredSession = remember { if (api.isConfigured) sessions.read() else null }
+    var current by remember { mutableStateOf(restoredSession?.takeIf { api.hasVerifiedEmailMfa(it.accessToken) }) }
+    LaunchedEffect(restoredSession) {
+        if (restoredSession != null && current == null) sessions.clear()
+    }
+    var pendingEmailMfaSession by remember { mutableStateOf<UserSession?>(null) }
+    var pendingMfaName by remember { mutableStateOf("") }
     var demoMode by rememberSaveable { mutableStateOf(false) }
     var activeTab by rememberSaveable { mutableStateOf(MainTab.Explore) }
     var goals by remember { mutableStateOf(emptyList<Goal>()) }
@@ -279,11 +285,10 @@ private fun HumanMeshApp(
             onSignIn = { email, password ->
                 runTask {
                     val session = api.signIn(email, password)
-                    api.ensureProfile(session, email.substringBefore("@").ifBlank { "New member" })
-                    current = session
-                    demoMode = false
-                    activeTab = MainTab.Explore
-                    notice = "Welcome back."
+                    api.sendEmailMfaCode(session)
+                    pendingEmailMfaSession = session
+                    pendingMfaName = ""
+                    notice = "We sent a six-digit verification code to " + session.email + "."
                 }
             },
             onSignUp = { email, password, name ->
@@ -292,11 +297,10 @@ private fun HumanMeshApp(
                     if (session == null) {
                         notice = "Account request sent. Verify your email, then return here to sign in."
                     } else {
-                        api.ensureProfile(session, name)
-                        current = session
-                        demoMode = false
-                        activeTab = MainTab.Explore
-                        notice = "Your HumanMesh account is ready."
+                        api.sendEmailMfaCode(session)
+                        pendingEmailMfaSession = session
+                        pendingMfaName = name
+                        notice = "We sent a six-digit verification code to " + session.email + "."
                     }
                 }
             },
@@ -305,6 +309,33 @@ private fun HumanMeshApp(
                     api.requestPasswordReset(email)
                     notice = "If that email is registered, password reset instructions have been sent."
                 }
+            },
+            pendingVerificationEmail = pendingEmailMfaSession?.email,
+            onVerifyEmailCode = { code ->
+                runTask {
+                    val pending = pendingEmailMfaSession ?: throw IllegalStateException("Sign-in expired. Enter your password again.")
+                    api.verifyEmailMfaCode(pending, code)
+                    val verifiedSession = api.completeEmailMfa(pending)
+                    api.ensureProfile(verifiedSession, pendingMfaName.ifBlank { verifiedSession.email.substringBefore("@").ifBlank { "New member" } })
+                    pendingEmailMfaSession = null
+                    pendingMfaName = ""
+                    current = verifiedSession
+                    demoMode = false
+                    activeTab = MainTab.Explore
+                    notice = "Email verification complete. Welcome to HumanMesh."
+                }
+            },
+            onResendEmailCode = {
+                runTask {
+                    val pending = pendingEmailMfaSession ?: throw IllegalStateException("Sign-in expired. Enter your password again.")
+                    api.sendEmailMfaCode(pending)
+                    notice = "A new verification code has been sent to " + pending.email + "."
+                }
+            },
+            onCancelEmailVerification = {
+                pendingEmailMfaSession = null
+                pendingMfaName = ""
+                notice = "Sign-in cancelled. Enter your credentials again."
             }
         )
         return
@@ -865,13 +896,18 @@ private fun AuthScreen(
     onDemo: () -> Unit,
     onSignIn: (String, String) -> Unit,
     onSignUp: (String, String, String) -> Unit,
-    onForgotPassword: (String) -> Unit
+    onForgotPassword: (String) -> Unit,
+    pendingVerificationEmail: String?,
+    onVerifyEmailCode: (String) -> Unit,
+    onResendEmailCode: () -> Unit,
+    onCancelEmailVerification: () -> Unit
 ) {
     var createAccount by rememberSaveable { mutableStateOf(false) }
     var email by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }
     var name by rememberSaveable { mutableStateOf("") }
     var showPassword by rememberSaveable { mutableStateOf(false) }
+    var emailCode by rememberSaveable { mutableStateOf("") }
 
     Box(
         modifier = Modifier
@@ -898,60 +934,98 @@ private fun AuthScreen(
                     Text("Better together, by design.", color = Color(0xFFB9B8CE), fontSize = 14.sp)
                 }
             }
-            Spacer(Modifier.height(26.dp))
-            Text("The next step starts with the right people.", fontSize = 32.sp, lineHeight = 39.sp, fontWeight = FontWeight.Bold, color = Color.White)
-            Spacer(Modifier.height(9.dp))
-            Text("Share a goal. Find collaborators. Turn ideas into progress.", color = Color(0xFFB9B8CE), fontSize = 15.sp, lineHeight = 23.sp)
-            Spacer(Modifier.height(23.dp))
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(25.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))
-            ) {
-                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(if (createAccount) "Create your account" else "Welcome back", fontSize = 21.sp, fontWeight = FontWeight.Bold)
-                    if (!configured) {
-                        Text("Online sign-in is not enabled in this build yet. Configure SUPABASE_URL and SUPABASE_ANON_KEY in the repository’s Actions secrets to connect a real backend.", color = Color(0xFFFFD39A), fontSize = 13.sp, lineHeight = 19.sp)
-                    }
-                    if (createAccount) {
-                        OutlinedTextField(name, { name = it.take(60) }, label = { Text("Your name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    }
-                    OutlinedTextField(email, { email = it.take(200) }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    OutlinedTextField(value = password, onValueChange = { password = it.take(128) }, label = { Text("Password") }, visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { showPassword = !showPassword }) { Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (showPassword) "Hide password" else "Show password") } }, modifier = Modifier.fillMaxWidth(), singleLine = true)
-                    if (createAccount) PasswordStrengthIndicator(password)
-                    if (message.isNotBlank()) NoticeBanner(message, onClearMessage)
-                    Button(
-                        onClick = {
-                            if (createAccount) onSignUp(email.trim(), password, name.trim())
-                            else onSignIn(email.trim(), password)
-                        },
-                        enabled = configured && !loading && email.contains("@") && (if (createAccount) isStrongPassword(password) else password.isNotBlank()) && (!createAccount || name.trim().length >= 2),
-                        modifier = Modifier.fillMaxWidth().height(50.dp),
-                        shape = RoundedCornerShape(15.dp)
-                    ) {
-                        Text(if (loading) "Please wait…" else if (createAccount) "Create account" else "Sign in", fontWeight = FontWeight.Bold)
-                    }
-                    if (!createAccount) {
-                        TextButton(
-                            onClick = { onForgotPassword(email) },
-                            enabled = configured && !loading && email.contains("@"),
-                            modifier = Modifier.fillMaxWidth()
-                        ) { Text("Forgot password?") }
-                    }
-                    TextButton(
-                        onClick = { createAccount = !createAccount; onClearMessage() },
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(if (createAccount) "Already have an account? Sign in" else "New to HumanMesh? Create account")
+            if (pendingVerificationEmail != null) {
+                Spacer(Modifier.height(28.dp))
+                Text("Verify it’s you", fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(Modifier.height(8.dp))
+                Text("Enter the six-digit sign-in code sent to " + pendingVerificationEmail + ". The code expires after 10 minutes.", color = Color(0xFFB9B8CE), fontSize = 14.sp, lineHeight = 21.sp)
+                Spacer(Modifier.height(22.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(25.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(
+                            value = emailCode,
+                            onValueChange = { emailCode = it.filter(Char::isDigit).take(6) },
+                            label = { Text("Six-digit email code") },
+                            modifier = Modifier.fillMaxWidth(),
+                            singleLine = true
+                        )
+                        if (message.isNotBlank()) NoticeBanner(message, onClearMessage)
+                        Button(
+                            onClick = { onVerifyEmailCode(emailCode) },
+                            enabled = !loading && emailCode.length == 6,
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(15.dp)
+                        ) { Text(if (loading) "Verifying…" else "Verify and sign in", fontWeight = FontWeight.Bold) }
+                        TextButton(onClick = onResendEmailCode, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+                            Text("Send a new code")
+                        }
+                        TextButton(onClick = onCancelEmailVerification, enabled = !loading, modifier = Modifier.fillMaxWidth()) {
+                            Text("Cancel sign-in")
+                        }
                     }
                 }
+                Spacer(Modifier.height(15.dp))
+                Text("Never share your verification code with anyone.", color = Color(0xFF8E90A7), fontSize = 12.sp)
+            } else {
+                Spacer(Modifier.height(26.dp))
+                Text("The next step starts with the right people.", fontSize = 32.sp, lineHeight = 39.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Spacer(Modifier.height(9.dp))
+                Text("Share a goal. Find collaborators. Turn ideas into progress.", color = Color(0xFFB9B8CE), fontSize = 15.sp, lineHeight = 23.sp)
+                Spacer(Modifier.height(23.dp))
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(25.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color(0xFF191B29))
+                ) {
+                    Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(if (createAccount) "Create your account" else "Welcome back", fontSize = 21.sp, fontWeight = FontWeight.Bold)
+                        if (!configured) {
+                            Text("Online sign-in is not enabled in this build yet. Configure SUPABASE_URL and SUPABASE_ANON_KEY in the repository’s Actions secrets to connect a real backend.", color = Color(0xFFFFD39A), fontSize = 13.sp, lineHeight = 19.sp)
+                        }
+                        if (createAccount) {
+                            OutlinedTextField(name, { name = it.take(60) }, label = { Text("Your name") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        }
+                        OutlinedTextField(email, { email = it.take(200) }, label = { Text("Email") }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        OutlinedTextField(value = password, onValueChange = { password = it.take(128) }, label = { Text("Password") }, visualTransformation = if (showPassword) VisualTransformation.None else PasswordVisualTransformation(), trailingIcon = { IconButton(onClick = { showPassword = !showPassword }) { Icon(if (showPassword) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, contentDescription = if (showPassword) "Hide password" else "Show password") } }, modifier = Modifier.fillMaxWidth(), singleLine = true)
+                        if (createAccount) PasswordStrengthIndicator(password)
+                        if (message.isNotBlank()) NoticeBanner(message, onClearMessage)
+                        Button(
+                            onClick = {
+                                if (createAccount) onSignUp(email.trim(), password, name.trim())
+                                else onSignIn(email.trim(), password)
+                            },
+                            enabled = configured && !loading && email.contains("@") && (if (createAccount) isStrongPassword(password) else password.isNotBlank()) && (!createAccount || name.trim().length >= 2),
+                            modifier = Modifier.fillMaxWidth().height(50.dp),
+                            shape = RoundedCornerShape(15.dp)
+                        ) {
+                            Text(if (loading) "Please wait…" else if (createAccount) "Create account" else "Sign in", fontWeight = FontWeight.Bold)
+                        }
+                        if (!createAccount) {
+                            TextButton(
+                                onClick = { onForgotPassword(email) },
+                                enabled = configured && !loading && email.contains("@"),
+                                modifier = Modifier.fillMaxWidth()
+                            ) { Text("Forgot password?") }
+                        }
+                        TextButton(
+                            onClick = { createAccount = !createAccount; onClearMessage() },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(if (createAccount) "Already have an account? Sign in" else "New to HumanMesh? Create account")
+                        }
+                    }
+                }
+                Spacer(Modifier.height(15.dp))
+                OutlinedButton(onClick = onDemo, modifier = Modifier.fillMaxWidth().height(49.dp), shape = RoundedCornerShape(15.dp)) {
+                    Text("Explore local demo")
+                }
+                Spacer(Modifier.height(10.dp))
+                Text("Your information should be shared only with people you choose. The demo uses sample data only.", color = Color(0xFF8E90A7), fontSize = 12.sp, lineHeight = 18.sp)
             }
-            Spacer(Modifier.height(15.dp))
-            OutlinedButton(onClick = onDemo, modifier = Modifier.fillMaxWidth().height(49.dp), shape = RoundedCornerShape(15.dp)) {
-                Text("Explore local demo")
-            }
-            Spacer(Modifier.height(10.dp))
-            Text("Your information should be shared only with people you choose. The demo uses sample data only.", color = Color(0xFF8E90A7), fontSize = 12.sp, lineHeight = 18.sp)
         }
     }
 }
